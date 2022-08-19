@@ -56,8 +56,7 @@ impl Player {
         let player_moved = if self.physics.velocity.length_squared() > 0.0 {
             self.location.translate(self.physics.velocity * delta_f32);
             true
-        }
-        else {
+        } else {
             false
         };
         // Apply friction to the player's velocity
@@ -111,7 +110,11 @@ impl Player {
 
     pub fn voxel_position(&self) -> VoxelPosition {
         let position = self.location.position();
-        vector!(VoxelUnits::from(position.x().floor() as i64), VoxelUnits::from(position.y().floor() as i64), VoxelUnits::from(position.z().floor() as i64))
+        vector!(
+            VoxelUnits::from(position.x().floor() as i64),
+            VoxelUnits::from(position.y().floor() as i64),
+            VoxelUnits::from(position.z().floor() as i64)
+        )
     }
 }
 

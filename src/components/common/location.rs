@@ -19,14 +19,20 @@ impl Location {
             if position.x().is_nan() || position.y().is_nan() || position.z().is_nan() {
                 panic!("Location::new: position is NaN");
             }
-            if rotation.x().is_nan() || rotation.y().is_nan() || rotation.z().is_nan() || rotation.w().is_nan() {
+            if rotation.x().is_nan()
+                || rotation.y().is_nan()
+                || rotation.z().is_nan()
+                || rotation.w().is_nan()
+            {
                 panic!("Location::new: rotation is NaN");
             }
             if scale.x().is_nan() || scale.y().is_nan() || scale.z().is_nan() {
                 panic!("Location::new: scale is NaN");
             }
             if rotation.length_squared() < f32::EPSILON {
-                panic!("Attempted to set the create a Location with a zero-length rotation quaternion");
+                panic!(
+                    "Attempted to set the create a Location with a zero-length rotation quaternion"
+                );
             }
         }
         Location {
@@ -64,7 +70,11 @@ impl Location {
     pub fn set_rotation(&mut self, rotation: Quaternion<f32>) {
         #[cfg(debug_assertions)]
         {
-            if rotation.x().is_nan() || rotation.y().is_nan() || rotation.z().is_nan() || rotation.w().is_nan() {
+            if rotation.x().is_nan()
+                || rotation.y().is_nan()
+                || rotation.z().is_nan()
+                || rotation.w().is_nan()
+            {
                 panic!("Location::new: rotation is NaN");
             }
             if rotation.length_squared() < f32::EPSILON {

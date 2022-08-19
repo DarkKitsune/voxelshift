@@ -1,38 +1,32 @@
 use crate::game::*;
 
-use super::{world::{WorldGenerator, VoxelPosition, VoxelPositionExt}, voxel::Voxel};
+use super::{
+    voxel::Voxel,
+    world::{VoxelPosition, VoxelPositionExt, WorldGenerator},
+};
 
 const MAX_ELEVATION: f64 = 30.0;
 const MIN_ELEVATION: f64 = -30.0;
 
 pub struct BasicWorldGenerator {
     seed: u64,
-    elevation_noise: Noise::<2>,
+    elevation_noise: Noise<2>,
 }
 
 impl BasicWorldGenerator {
     pub fn new(seed: u64) -> Self {
-        let elevation_noise = Noise::<2>::new(
+        let elevation_noise = Noise::<2>::new(seed, 5, 3.0, 2.0, 0.1);
+        Self {
             seed,
-            5,
-            3.0,
-            2.0,
-            0.1,
-        );
-        Self { seed, elevation_noise }
+            elevation_noise,
+        }
     }
 }
 
 impl WorldGenerator for BasicWorldGenerator {
     fn new_constructor(&self) -> Box<dyn FnMut(world::VoxelPosition) -> Option<Voxel>> {
         let seed = self.seed;
-        let color_noise = Noise::<3>::new(
-            seed.wrapping_mul(12345),
-            4,
-            4.0,
-            3.0,
-            0.7,
-        );
+        let color_noise = Noise::<3>::new(seed.wrapping_mul(12345), 4, 4.0, 3.0, 0.7);
         let elevation_noise = self.elevation_noise.clone();
         Box::new(move |voxel_position: VoxelPosition| {
             let voxel_center = voxel_position.center_position();

@@ -20,20 +20,23 @@ impl Camera {
 
     /// Create a new perspective camera
     pub fn new_perspective(target_node: Option<Handle>, fov: f32, near: f32, far: f32) -> Self {
-        Self::new(target_node, CameraProjection::Perspective {
-            fov,
-            near,
-            far,
-        })
+        Self::new(
+            target_node,
+            CameraProjection::Perspective { fov, near, far },
+        )
     }
 
     /// Create a new orthographic camera
-    pub fn new_orthographic(target_node: Option<Handle>, size: OrthographicSize, near: f32, far: f32) -> Self {
-        Self::new(target_node, CameraProjection::Orthographic {
-            size,
-            near,
-            far,
-        })
+    pub fn new_orthographic(
+        target_node: Option<Handle>,
+        size: OrthographicSize,
+        near: f32,
+        far: f32,
+    ) -> Self {
+        Self::new(
+            target_node,
+            CameraProjection::Orthographic { size, near, far },
+        )
     }
 
     /// Set the camera target node
@@ -59,10 +62,12 @@ impl Camera {
     /// Create a projection matrix for the camera
     pub fn projection_matrix(&self, aspect_ratio: f32) -> Matrix4x4<f32> {
         match self.camera_projection.clone() {
-            CameraProjection::Perspective { fov, near, far } =>
-                Matrix4x4::new_projection_perspective(fov, aspect_ratio, near, far),
-            CameraProjection::Orthographic { size, near, far } =>
-                Matrix4x4::new_projection_orthographic(size.size(aspect_ratio), near, far),
+            CameraProjection::Perspective { fov, near, far } => {
+                Matrix4x4::new_projection_perspective(fov, aspect_ratio, near, far)
+            }
+            CameraProjection::Orthographic { size, near, far } => {
+                Matrix4x4::new_projection_orthographic(size.size(aspect_ratio), near, far)
+            }
         }
     }
 }

@@ -12,9 +12,11 @@ impl ProgramTemplate for WorldProgram {
             .with_camera()
             .with_vertex_module(vertex_main)
             .with_fragment_module(fragment_main);
-        println!("\n############################\nVertex code:\n\n{}\n\n############################\n", builder.vertex_code());
-        builder
-            .build(gfx)
+        println!(
+            "\n############################\nVertex code:\n\n{}\n\n############################\n",
+            builder.vertex_code()
+        );
+        builder.build(gfx)
     }
 }
 

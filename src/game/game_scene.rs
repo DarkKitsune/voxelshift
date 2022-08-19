@@ -1,6 +1,9 @@
 use crate::game::*;
 
-use super::{player::Player, programs::world_program::WorldProgram, world::World, world_generator::BasicWorldGenerator};
+use super::{
+    player::Player, programs::world_program::WorldProgram, world::World,
+    world_generator::BasicWorldGenerator,
+};
 
 // ============================================================================
 //     Scene events
@@ -55,12 +58,11 @@ pub fn on_render(
             let world = node.class_as_mut::<World>().unwrap();
             (world.program().clone(), world)
         })
-        .flat_map(
-            |(program, world)|
+        .flat_map(|(program, world)| {
             world
                 .chunk_meshes(gfx)
                 .map(move |(location, mesh)| (program.clone(), (location, mesh)))
-        )
+        })
         .collect();
     for (program, (location, mesh)) in drawn_meshes {
         gfx.render_mesh(
@@ -104,15 +106,15 @@ fn init_universe(scene: &mut Scene, gfx: &Gfx) -> NodeHandles {
     let world_program = scene.get_program("world program");
 
     // Create the world node
-    let world = scene
-        .universe_mut()
-        .create_node(None, World::new(gfx, world_program, BasicWorldGenerator::new(12345)));
+    let world = scene.universe_mut().create_node(
+        None,
+        World::new(gfx, world_program, BasicWorldGenerator::new(12345)),
+    );
 
     // Create the player node
-    let player = scene.universe_mut().create_node(
-        None,
-        Player::new(vector!(0.0, 0.0, 2.0), f32::pi() * 0.5),
-    );
+    let player = scene
+        .universe_mut()
+        .create_node(None, Player::new(vector!(0.0, 0.0, 2.0), f32::pi() * 0.5));
 
     NodeHandles { world, player }
 }
@@ -124,7 +126,12 @@ fn init_universe(scene: &mut Scene, gfx: &Gfx) -> NodeHandles {
 /// Update the scene
 fn update_scene(scene: &mut Scene, node_handles: &NodeHandles, frame_delta: Duration) {
     // Update the player
-    player_code::update_player(scene, &node_handles.player, &node_handles.world, frame_delta);
+    player_code::update_player(
+        scene,
+        &node_handles.player,
+        &node_handles.world,
+        frame_delta,
+    );
 }
 
 // ============================================================================

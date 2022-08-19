@@ -514,22 +514,30 @@ impl ModuleOutputs {
             output.value.validate_operands();
             // Verify that built-in outputs are valid
             match stage {
-                Module::Vertex => if name == "gl_Position" {
+                Module::Vertex => {
+                    if name == "gl_Position" {
                         if self.module != Module::Vertex {
                             panic!("Vertex position output can only be set by the vertex module");
                         }
-                        if output.value.expression_type() != expr::ExpressionType::Vector4(expr::Scalar::F32) {
+                        if output.value.expression_type()
+                            != expr::ExpressionType::Vector4(expr::Scalar::F32)
+                        {
                             panic!("Vertex position output must be a vec4");
                         }
-                    },
-                Module::Fragment => if name == "out_frag_color" {
+                    }
+                }
+                Module::Fragment => {
+                    if name == "out_frag_color" {
                         if self.module != Module::Fragment {
                             panic!("Fragment color output can only be set by the fragment module");
                         }
-                        if output.value.expression_type() != expr::ExpressionType::Vector4(expr::Scalar::F32) {
+                        if output.value.expression_type()
+                            != expr::ExpressionType::Vector4(expr::Scalar::F32)
+                        {
                             panic!("Fragment color output must be a vec4");
                         }
-                    },
+                    }
+                }
             }
         }
     }
@@ -889,7 +897,10 @@ pub mod expr {
 
         pub fn mul(self, other: impl Into<Expression>) -> Expression {
             Self {
-                class: Some(ExpressionClass::Operator(Operator::Mul(Box::new(self), Box::new(other.into())))),
+                class: Some(ExpressionClass::Operator(Operator::Mul(
+                    Box::new(self),
+                    Box::new(other.into()),
+                ))),
                 cached_type: None,
             }
         }
@@ -1484,11 +1495,7 @@ pub mod expr {
         }
 
         fn plus_width(self, width: usize) -> Option<Self> {
-            let own_width = if self.is_scalar() {
-                1
-            } else {
-                self.width()?
-            };
+            let own_width = if self.is_scalar() { 1 } else { self.width()? };
             Some(match own_width + width {
                 2 => Self::Vector2(self.scalar()),
                 3 => Self::Vector3(self.scalar()),
@@ -1718,13 +1725,9 @@ pub mod expr {
                     let a_type = a.expression_type();
                     let b_type = b.expression_type();
                     if a_type != b_type
-                        && (
-                            a_type.scalar() != b_type.scalar()
-                            || !(
-                                (a_type.is_matrix() && b_type.width() == a_type.row_width())
-                                || (a_type.is_vector() && b_type.is_scalar())
-                            )
-                        )
+                        && (a_type.scalar() != b_type.scalar()
+                            || !((a_type.is_matrix() && b_type.width() == a_type.row_width())
+                                || (a_type.is_vector() && b_type.is_scalar())))
                     {
                         Some(("*", vec![a_type, b_type]))
                     } else {
@@ -2182,22 +2185,10 @@ pub mod expr {
                     let a_type = a.expression_type();
                     let b_type = b.expression_type();
                     if b_type.is_vector() {
-                        a_type
-                            .plus_width(
-                                b_type
-                                    .width()
-                                    .unwrap()
-                            )
-                            .unwrap_or(a_type)
-                    }
-                    else if b_type.is_scalar() {
-                        a_type
-                            .plus_width(
-                                1
-                            )
-                            .unwrap_or(a_type)
-                    }
-                    else {
+                        a_type.plus_width(b_type.width().unwrap()).unwrap_or(a_type)
+                    } else if b_type.is_scalar() {
+                        a_type.plus_width(1).unwrap_or(a_type)
+                    } else {
                         ExpressionType::Scalar(Scalar::F32)
                     }
                 }

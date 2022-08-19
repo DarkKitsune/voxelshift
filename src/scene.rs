@@ -2,7 +2,8 @@ use std::{any::Any, collections::HashMap, time::Duration};
 
 use ggmath::{
     prelude::{Matrix3x3, Matrix4x4},
-    vector_alias::{Vector2, Vector3}, quaternion::Quaternion,
+    quaternion::Quaternion,
+    vector_alias::{Vector2, Vector3},
 };
 use ggutil::prelude::Handle;
 use glfw::{Action, Key, Modifiers};
@@ -111,7 +112,9 @@ impl Scene {
         clear_color: Option<Color>,
         on_init: Option<fn(&mut Scene, &Gfx)>,
         on_update: Option<fn(&mut Scene, Duration)>,
-        on_render: Option<fn(&mut Scene, &Gfx, &Framebuffer, &RenderCamera, Vector2<u32>, Duration)>,
+        on_render: Option<
+            fn(&mut Scene, &Gfx, &Framebuffer, &RenderCamera, Vector2<u32>, Duration),
+        >,
         on_key: Option<fn(&mut Scene, Key, Action, Modifiers)>,
         on_mouse_move: Option<fn(&mut Scene, Vector2<f32>)>,
     ) -> Self {
@@ -160,7 +163,8 @@ impl Scene {
         if let Some((camera_node, camera)) = self.universe.nodes().with_component::<Camera>().next()
         {
             let absolute_camera_location = self.get_absolute_location(camera_node.handle().clone());
-            let absolute_camera_rotation_matrix = Matrix3x3::from(absolute_camera_location.delocalize_rotation(camera.rotation()));
+            let absolute_camera_rotation_matrix =
+                Matrix3x3::from(absolute_camera_location.delocalize_rotation(camera.rotation()));
 
             // Set the camera
             let absolute_camera_position = absolute_camera_location.position();
@@ -295,7 +299,11 @@ impl Scene {
     }
 
     /// Gets the location of a node, local to the given location
-    pub fn get_location_local_to_location(&self, node_handle: Handle, local_to: Location) -> Location {
+    pub fn get_location_local_to_location(
+        &self,
+        node_handle: Handle,
+        local_to: Location,
+    ) -> Location {
         let node = self
             .universe
             .node(&node_handle)
@@ -304,11 +312,12 @@ impl Scene {
         let node_location = node
             .component::<Location>()
             .expect("Node pointed to by \"node_handle\" does not have a Location component");
-        
+
         // Calculate the absolute location of the node
         let absolute_location = if let Some(parent) = node.parent() {
             // If the parent has a location, delocalize the location from it
-            self.get_location_local_to_location(parent.clone(), local_to.clone()).delocalize_location(node_location.clone())
+            self.get_location_local_to_location(parent.clone(), local_to.clone())
+                .delocalize_location(node_location.clone())
         } else {
             node_location.clone()
         };
@@ -319,7 +328,10 @@ impl Scene {
 
     /// Gets the location of a node, local to the scene anchor
     pub fn get_absolute_location(&self, node_handle: Handle) -> Location {
-        self.get_location_local_to_location(node_handle, self.anchor_location.clone().unwrap_or_default())
+        self.get_location_local_to_location(
+            node_handle,
+            self.anchor_location.clone().unwrap_or_default(),
+        )
     }
 
     pub fn set_anchor_location(&mut self, location: Option<Location>) {
