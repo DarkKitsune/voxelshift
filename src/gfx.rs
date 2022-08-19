@@ -205,7 +205,10 @@ impl Gfx {
                 program
                     .set_uniform_value_dyn(&name, value)
                     .unwrap_or_else(|_| {
-                        panic!("Uniform variable \"{}\" is not defined in the program", name)
+                        panic!(
+                            "Uniform variable \"{}\" is not defined in the program",
+                            name
+                        )
                     });
             }
             // Draw the elements
@@ -635,13 +638,10 @@ impl Program {
 
     /// Set the value of a uniform variable in the program
     fn set_camera(&self, camera: &RenderCamera) {
-        self.set_uniform_value("_camera_position", camera.position)
-            .expect("Program was not created with a camera");
-        self.set_uniform_value("_camera_direction", camera.direction)
-            .unwrap();
-        self.set_uniform_value("_camera_up", camera.up).unwrap();
-        self.set_uniform_value("_camera_projection", camera.projection)
-            .unwrap();
+        let _ = self.set_uniform_value("_camera_position", camera.position);
+        let _ = self.set_uniform_value("_camera_direction", camera.direction);
+        let _ = self.set_uniform_value("_camera_up", camera.up);
+        let _ = self.set_uniform_value("_camera_projection", camera.projection);
     }
 }
 
@@ -925,7 +925,7 @@ impl RenderCamera {
 
         #[cfg(debug_assertions)]
         {
-            if direction.dot(&up).abs() > 0.9999 {
+            if direction.dot(&up).abs() > 0.99999 {
                 panic!("Forward and up must not be parallel or too close to parallel");
             }
         }

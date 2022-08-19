@@ -1,24 +1,108 @@
-use ggmath::prelude::{Quaternion, Vector3, Matrix3x3};
+use ggmath::prelude::*;
 
 /// Represents a location in 3D space.
 #[derive(Clone, Debug)]
 pub struct Location {
     /// The location's position vector
-    pub position: Vector3<f32>,
+    position: Vector3<f32>,
     /// The location's rotation quaternion
-    pub rotation: Quaternion<f32>,
+    rotation: Quaternion<f32>,
     /// The location's scale vector
-    pub scale: Vector3<f32>,
+    scale: Vector3<f32>,
 }
 
 impl Location {
     /// Creates a new location with the given position, rotation, and scale.
     pub fn new(position: Vector3<f32>, rotation: Quaternion<f32>, scale: Vector3<f32>) -> Location {
+        #[cfg(debug_assertions)]
+        {
+            if position.x().is_nan() || position.y().is_nan() || position.z().is_nan() {
+                panic!("Location::new: position is NaN");
+            }
+            if rotation.x().is_nan() || rotation.y().is_nan() || rotation.z().is_nan() || rotation.w().is_nan() {
+                panic!("Location::new: rotation is NaN");
+            }
+            if scale.x().is_nan() || scale.y().is_nan() || scale.z().is_nan() {
+                panic!("Location::new: scale is NaN");
+            }
+            if rotation.length_squared() < f32::EPSILON {
+                panic!("Attempted to set the create a Location with a zero-length rotation quaternion");
+            }
+        }
         Location {
             position,
             rotation,
             scale,
         }
+    }
+
+    /// Returns the location's position vector.
+    pub fn position(&self) -> Vector3<f32> {
+        self.position
+    }
+
+    /// Sets the location's position vector.
+    pub fn set_position(&mut self, position: Vector3<f32>) {
+        #[cfg(debug_assertions)]
+        if position.x().is_nan() || position.y().is_nan() || position.z().is_nan() {
+            panic!("Location::new: position is NaN");
+        }
+        self.position = position;
+    }
+
+    /// Changes the location's position vector by the given amount.
+    pub fn translate(&mut self, amount: Vector3<f32>) {
+        self.set_position(self.position() + amount);
+    }
+
+    /// Returns the location's rotation quaternion.
+    pub fn rotation(&self) -> Quaternion<f32> {
+        self.rotation
+    }
+
+    /// Sets the location's rotation quaternion.
+    pub fn set_rotation(&mut self, rotation: Quaternion<f32>) {
+        #[cfg(debug_assertions)]
+        {
+            if rotation.x().is_nan() || rotation.y().is_nan() || rotation.z().is_nan() || rotation.w().is_nan() {
+                panic!("Location::new: rotation is NaN");
+            }
+            if rotation.length_squared() < f32::EPSILON {
+                panic!("Attempted to set the location's rotation to a zero-length quaternion");
+            }
+        }
+        self.rotation = rotation;
+    }
+
+    /// Changes the location's rotation quaternion by the given amount.
+    pub fn rotate(&mut self, amount: Quaternion<f32>) {
+        self.set_rotation(self.rotation().and_then(&amount));
+    }
+
+    /// Returns the location's scale vector.
+    pub fn scale(&self) -> Vector3<f32> {
+        self.scale
+    }
+
+    /// Sets the location's scale vector.
+    pub fn set_scale(&mut self, scale: Vector3<f32>) {
+        #[cfg(debug_assertions)]
+        if scale.x().is_nan() || scale.y().is_nan() || scale.z().is_nan() {
+            panic!("Location::new: scale is NaN");
+        }
+        self.scale = scale;
+    }
+
+    /// Returns the location's rotation matrix.
+    pub fn rotation_matrix(&self) -> Matrix3x3<f32> {
+        Matrix3x3::from(self.rotation)
+    }
+
+    /// Returns the location's transformation matrix.
+    pub fn transformation_matrix(&self) -> Matrix4x4<f32> {
+        Matrix4x4::from(self.rotation())
+            .and_then(&Matrix4x4::new_scale(&self.scale()))
+            .and_then(&Matrix4x4::new_translation(&self.position()))
     }
 
     /// Delocalizes a direction that is local to this location,
@@ -27,16 +111,28 @@ impl Location {
         Matrix3x3::from(self.rotation) * direction
     }
 
+    pub fn localize_direction(&self, direction: Vector3<f32>) -> Vector3<f32> {
+        Matrix3x3::from(self.rotation.inverted()) * direction
+    }
+
     /// Delocalizes a position that is local to this location,
     /// making it local to the parent of the owner of this location instead.
     pub fn delocalize_position(&self, position: Vector3<f32>) -> Vector3<f32> {
         Matrix3x3::from(self.rotation) * position + self.position
     }
 
+    pub fn localize_position(&self, position: Vector3<f32>) -> Vector3<f32> {
+        Matrix3x3::from(self.rotation.inverted()) * (position - self.position)
+    }
+
     /// Delocalizes a rotation that is local to this location,
     /// making it local to the parent of the owner of this location instead.
     pub fn delocalize_rotation(&self, rotation: Quaternion<f32>) -> Quaternion<f32> {
-        self.rotation.and_then(&rotation)
+        rotation.and_then(&self.rotation)
+    }
+
+    pub fn localize_rotation(&self, rotation: Quaternion<f32>) -> Quaternion<f32> {
+        rotation.and_then(&self.rotation.inverted())
     }
 
     /// Delocalizes a scale that is local to this location,
@@ -45,14 +141,26 @@ impl Location {
         self.scale * scale
     }
 
+    pub fn localize_scale(&self, scale: Vector3<f32>) -> Vector3<f32> {
+        self.scale / scale
+    }
+
     /// Delocalizes a location that is local to this location,
     /// making it local to the parent of the owner of this location instead.
     pub fn delocalize_location(&self, location: Location) -> Location {
-        Location {
-            position: self.delocalize_position(location.position),
-            rotation: self.delocalize_rotation(location.rotation),
-            scale: self.delocalize_scale(location.scale),
-        }
+        Location::new(
+            self.delocalize_position(location.position),
+            self.delocalize_rotation(location.rotation),
+            self.delocalize_scale(location.scale),
+        )
+    }
+
+    pub fn localize_location(&self, location: Location) -> Location {
+        Location::new(
+            self.localize_position(location.position),
+            self.localize_rotation(location.rotation),
+            self.localize_scale(location.scale),
+        )
     }
 }
 
@@ -60,7 +168,7 @@ impl Default for Location {
     fn default() -> Self {
         Location {
             position: Vector3::zero(),
-            rotation: Quaternion::new_identity(),
+            rotation: Quaternion::identity(),
             scale: Vector3::one(),
         }
     }

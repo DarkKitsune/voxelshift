@@ -6,7 +6,8 @@ use std::{
 
 use ggmath::prelude::*;
 use glfw::{
-    ClientApiHint, Context, Glfw, OpenGlProfileHint, SwapInterval, Window, WindowEvent, WindowHint, Key, Modifiers, Action, CursorMode,
+    Action, ClientApiHint, Context, CursorMode, Glfw, Key, Modifiers, OpenGlProfileHint,
+    SwapInterval, Window, WindowEvent, WindowHint,
 };
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 
@@ -122,16 +123,18 @@ impl AppWindow {
                         base.should_exit = true;
                         println!("Window close was requested");
                         update_events.push(AppWindowUpdateEvent::Closed);
-                    },
-                    glfw::WindowEvent::Key(key, _, action, modifiers) => update_events.push(
-                        AppWindowUpdateEvent::KeyAction {
+                    }
+                    glfw::WindowEvent::Key(key, _, action, modifiers) => {
+                        update_events.push(AppWindowUpdateEvent::KeyAction {
                             key,
                             action,
                             modifiers,
-                        },
-                    ),
+                        })
+                    }
                     glfw::WindowEvent::CursorPos(x, y) => {
-                        update_events.push(AppWindowUpdateEvent::MouseMove { position: vector!(x as f32, y as f32) });
+                        update_events.push(AppWindowUpdateEvent::MouseMove {
+                            position: vector!(x as f32, y as f32),
+                        });
                     }
                     _ => {}
                 }

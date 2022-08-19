@@ -1,6 +1,6 @@
 use crate::game::*;
 
-use super::{player::Player, world::World, programs::world_program::WorldProgram};
+use super::{player::Player, programs::world_program::WorldProgram, world::World, world_generator::BasicWorldGenerator};
 
 // ============================================================================
 //     Scene events
@@ -42,9 +42,38 @@ pub fn on_render(
     scene: &mut Scene,
     gfx: &Gfx,
     framebuffer: &Framebuffer,
+    render_camera: &RenderCamera,
     window_size: Vector2<u32>,
     frame_delta: Duration,
 ) {
+    // Render world chunk meshes
+    let drawn_meshes: Vec<_> = scene
+        .universe_mut()
+        .nodes_mut()
+        .with_class::<World>()
+        .map(|node| {
+            let world = node.class_as_mut::<World>().unwrap();
+            (world.program().clone(), world)
+        })
+        .flat_map(
+            |(program, world)|
+            world
+                .chunk_meshes(gfx)
+                .map(move |(location, mesh)| (program.clone(), (location, mesh)))
+        )
+        .collect();
+    for (program, (location, mesh)) in drawn_meshes {
+        gfx.render_mesh(
+            framebuffer,
+            &program,
+            mesh,
+            1,
+            Some(&render_camera),
+            render_uniforms! [
+                mesh_position: location.position(),
+            ],
+        );
+    }
 }
 
 /// Scene key event
@@ -75,10 +104,15 @@ fn init_universe(scene: &mut Scene, gfx: &Gfx) -> NodeHandles {
     let world_program = scene.get_program("world program");
 
     // Create the world node
-    let world = scene.universe_mut().create_node(None, World::new(gfx, world_program));
+    let world = scene
+        .universe_mut()
+        .create_node(None, World::new(gfx, world_program, BasicWorldGenerator::new(12345)));
 
     // Create the player node
-    let player = scene.universe_mut().create_node(Some(&world), Player::new(vector!(0.0, 0.0, 2.0), f32::pi() * 0.6));
+    let player = scene.universe_mut().create_node(
+        None,
+        Player::new(vector!(0.0, 0.0, 2.0), f32::pi() * 0.5),
+    );
 
     NodeHandles { world, player }
 }
@@ -89,7 +123,8 @@ fn init_universe(scene: &mut Scene, gfx: &Gfx) -> NodeHandles {
 
 /// Update the scene
 fn update_scene(scene: &mut Scene, node_handles: &NodeHandles, frame_delta: Duration) {
-    player_code::update_player(scene, &node_handles.player, frame_delta);
+    // Update the player
+    player_code::update_player(scene, &node_handles.player, &node_handles.world, frame_delta);
 }
 
 // ============================================================================
@@ -97,7 +132,13 @@ fn update_scene(scene: &mut Scene, node_handles: &NodeHandles, frame_delta: Dura
 // ============================================================================
 
 /// Scene key event
-fn scene_key_action(scene: &mut Scene, player_handle: &Handle, key: Key, action: Action, modifiers: Modifiers) {
+fn scene_key_action(
+    scene: &mut Scene,
+    player_handle: &Handle,
+    key: Key,
+    action: Action,
+    modifiers: Modifiers,
+) {
     player_code::player_key_action(scene, player_handle, key, action, modifiers);
 }
 

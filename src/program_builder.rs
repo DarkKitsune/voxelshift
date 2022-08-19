@@ -468,27 +468,6 @@ impl ModuleOutputs {
         let value = value.into();
         let value_type = value.expression_type();
 
-        // Verify that built in outputs are valid
-        match name {
-            "gl_Position" => {
-                if self.module != Module::Vertex {
-                    panic!("Vertex position output can only be set by the vertex module");
-                }
-                if value_type != expr::ExpressionType::Vector4(expr::Scalar::F32) {
-                    panic!("Vertex position output must be a vec4");
-                }
-            }
-            "out_frag_color" => {
-                if self.module != Module::Fragment {
-                    panic!("Fragment color output can only be set by the fragment module");
-                }
-                if value_type != expr::ExpressionType::Vector4(expr::Scalar::F32) {
-                    panic!("Fragment color output must be a vec4");
-                }
-            }
-            _ => {}
-        }
-
         // Build an output
         let output = ModuleOutput {
             receiver,
@@ -528,6 +507,32 @@ impl ModuleOutputs {
     fn iter(&self) -> impl Iterator<Item = &ModuleOutput> {
         self.outputs.values()
     }
+
+    fn verify(&self, stage: Module) {
+        for (name, output) in self.outputs.iter() {
+            // Verify expression
+            output.value.validate_operands();
+            // Verify that built-in outputs are valid
+            match stage {
+                Module::Vertex => if name == "gl_Position" {
+                        if self.module != Module::Vertex {
+                            panic!("Vertex position output can only be set by the vertex module");
+                        }
+                        if output.value.expression_type() != expr::ExpressionType::Vector4(expr::Scalar::F32) {
+                            panic!("Vertex position output must be a vec4");
+                        }
+                    },
+                Module::Fragment => if name == "out_frag_color" {
+                        if self.module != Module::Fragment {
+                            panic!("Fragment color output can only be set by the fragment module");
+                        }
+                        if output.value.expression_type() != expr::ExpressionType::Vector4(expr::Scalar::F32) {
+                            panic!("Fragment color output must be a vec4");
+                        }
+                    },
+            }
+        }
+    }
 }
 
 pub struct ModuleUniforms {
@@ -556,7 +561,7 @@ impl ModuleUniforms {
         self.uniforms
             .iter()
             .filter_map(|(name, (expression_type, used))| {
-                if !*used {
+                if !*used && !name.starts_with('_') {
                     Some((name.clone(), *expression_type))
                 } else {
                     None
@@ -682,13 +687,14 @@ fn write_main(mut source: String, outputs: &ModuleOutputs, stage: Module) -> Str
         );
     }
 
+    // Verify outputs; If there's an issue in an output this will cause a panic
+    outputs.verify(stage);
+
     // Start main function
     source.push_str("void main() {\n");
 
     // Write outputs
     let mut source = outputs.iter().fold(source, |mut acc, output| {
-        // Verify expression
-        output.value.validate_operands();
         // Write output
         if !required_outputs.contains(&output.next_stage_input.name) {
             acc.push_str("\tout_");
@@ -883,10 +889,7 @@ pub mod expr {
 
         pub fn mul(self, other: impl Into<Expression>) -> Expression {
             Self {
-                class: Some(ExpressionClass::Operator(Operator::Mul(
-                    Box::new(self),
-                    Box::new(other.into()),
-                ))),
+                class: Some(ExpressionClass::Operator(Operator::Mul(Box::new(self), Box::new(other.into())))),
                 cached_type: None,
             }
         }
@@ -1097,29 +1100,17 @@ pub mod expr {
         }
 
         fn convert_to(self, new_type: ExpressionType) -> Expression {
+            // Exit early if the type is already the same
+            if self.expression_type() == new_type {
+                return self;
+            }
+            // Else convert the expression to the new type
             Self {
                 class: Some(ExpressionClass::Operator(Operator::Convert(
                     Box::new(self),
                     new_type,
                 ))),
                 cached_type: Some(new_type),
-            }
-        }
-
-        pub fn clone(&mut self) -> Expression {
-            if let ExpressionClass::Clone(class) = self.class.as_ref().unwrap() {
-                Self {
-                    class: Some(ExpressionClass::Clone(class.clone())),
-                    cached_type: self.cached_type.clone(),
-                }
-            } else {
-                let cloned_class = Arc::new(self.class.take().unwrap());
-                self.class = Some(ExpressionClass::Clone(cloned_class.clone()));
-
-                Self {
-                    class: Some(ExpressionClass::Clone(cloned_class)),
-                    cached_type: self.cached_type.clone(),
-                }
             }
         }
 
@@ -1153,6 +1144,23 @@ pub mod expr {
             }
         }
 
+        pub fn clone(&mut self) -> Expression {
+            if let ExpressionClass::Clone(class) = self.class.as_ref().unwrap() {
+                Self {
+                    class: Some(ExpressionClass::Clone(class.clone())),
+                    cached_type: self.cached_type.clone(),
+                }
+            } else {
+                let cloned_class = Arc::new(self.class.take().unwrap());
+                self.class = Some(ExpressionClass::Clone(cloned_class.clone()));
+
+                Self {
+                    class: Some(ExpressionClass::Clone(cloned_class)),
+                    cached_type: self.cached_type.clone(),
+                }
+            }
+        }
+
         pub fn get(self, index: impl Into<Expression>) -> Expression {
             Self {
                 class: Some(ExpressionClass::Operator(Operator::Get(
@@ -1182,7 +1190,7 @@ pub mod expr {
         pub fn xy(mut self) -> Expression {
             self.clone().get(0).concat(self.get(1))
         }
-        
+
         pub fn yz(mut self) -> Expression {
             self.clone().get(1).concat(self.get(2))
         }
@@ -1192,11 +1200,15 @@ pub mod expr {
         }
 
         pub fn xyz(mut self) -> Expression {
-            self.clone().get(0).concat(self.clone().get(1).concat(self.get(2)))
+            self.clone()
+                .get(0)
+                .concat(self.clone().get(1).concat(self.get(2)))
         }
 
         pub fn yzw(mut self) -> Expression {
-            self.clone().get(1).concat(self.clone().get(2).concat(self.get(3)))
+            self.clone()
+                .get(1)
+                .concat(self.clone().get(2).concat(self.get(3)))
         }
     }
 
@@ -1392,6 +1404,10 @@ pub mod expr {
     }
 
     impl ExpressionType {
+        /// If the expression's type signature is a vector or matrix type,
+        /// returns the scalar type of its components.
+        /// If the expression has a scalar type signature,
+        /// returns this scalar type.
         fn scalar(self) -> Scalar {
             match self {
                 Self::Scalar(s) => s,
@@ -1402,17 +1418,39 @@ pub mod expr {
             }
         }
 
-        fn width(self) -> usize {
-            match self {
-                Self::Scalar(_) => 1,
+        fn width(self) -> Option<usize> {
+            Some(match self {
                 Self::Vector2(_) => 2,
                 Self::Vector3(_) => 3,
                 Self::Vector4(_) => 4,
-                Self::Matrix4x4(_) => panic!("Expected vector but foung matrix"),
+                _ => return None,
+            })
+        }
+
+        fn row_width(self) -> Option<usize> {
+            Some(match self {
+                Self::Matrix4x4(_) => 4,
+                _ => return None,
+            })
+        }
+
+        fn is_scalar(self) -> bool {
+            match self {
+                Self::Scalar(_) => true,
+                _ => false,
             }
         }
 
-        fn is_matrix4x4(self) -> bool {
+        fn is_vector(self) -> bool {
+            match self {
+                Self::Vector2(_) => true,
+                Self::Vector3(_) => true,
+                Self::Vector4(_) => true,
+                _ => false,
+            }
+        }
+
+        fn is_matrix(self) -> bool {
             match self {
                 Self::Matrix4x4(_) => true,
                 _ => false,
@@ -1445,15 +1483,18 @@ pub mod expr {
             }
         }
 
-        fn plus_width(self, width: usize) -> Self {
-            let new_width = self.width() + width;
-            match new_width {
-                1 => Self::Scalar(self.scalar()),
+        fn plus_width(self, width: usize) -> Option<Self> {
+            let own_width = if self.is_scalar() {
+                1
+            } else {
+                self.width()?
+            };
+            Some(match own_width + width {
                 2 => Self::Vector2(self.scalar()),
                 3 => Self::Vector3(self.scalar()),
                 4 => Self::Vector4(self.scalar()),
-                _ => panic!("Invalid width: {}", new_width),
-            }
+                _ => return None,
+            })
         }
 
         /// Get the number of location slots consumed by an input or uniform with this expression type
@@ -1644,16 +1685,16 @@ pub mod expr {
     impl Operator {
         fn validate_operands(&self) {
             // Validate types as well as pass validation down the tree
-            if let Some((operator_str, operand_strings)) = match self {
+            if let Some((operator_str, operand_types)) = match self {
                 Operator::Add(a, b) => {
                     a.validate_operands();
                     b.validate_operands();
                     let a_type = a.expression_type();
                     let b_type = b.expression_type();
                     if a_type != b_type
-                        && (a_type.scalar() != b_type.scalar() || b_type.width() != 1)
+                        && (a_type.scalar() != b_type.scalar() || !b_type.is_scalar())
                     {
-                        Some(("+", vec![a.to_string(), b.to_string()]))
+                        Some(("+", vec![a_type, b_type]))
                     } else {
                         None
                     }
@@ -1664,9 +1705,9 @@ pub mod expr {
                     let a_type = a.expression_type();
                     let b_type = b.expression_type();
                     if a_type != b_type
-                        && (a_type.scalar() != b_type.scalar() || b_type.width() != 1)
+                        && (a_type.scalar() != b_type.scalar() || !b_type.is_scalar())
                     {
-                        Some(("-", vec![a.to_string(), b.to_string()]))
+                        Some(("-", vec![a_type, b_type]))
                     } else {
                         None
                     }
@@ -1677,11 +1718,15 @@ pub mod expr {
                     let a_type = a.expression_type();
                     let b_type = b.expression_type();
                     if a_type != b_type
-                        && (a_type.scalar() != b_type.scalar()
-                            || (b_type.width() != 1
-                                && !(a_type.is_matrix4x4() && b_type.width() == 4)))
+                        && (
+                            a_type.scalar() != b_type.scalar()
+                            || !(
+                                (a_type.is_matrix() && b_type.width() == a_type.row_width())
+                                || (a_type.is_vector() && b_type.is_scalar())
+                            )
+                        )
                     {
-                        Some(("*", vec![a.to_string(), b.to_string()]))
+                        Some(("*", vec![a_type, b_type]))
                     } else {
                         None
                     }
@@ -1692,9 +1737,9 @@ pub mod expr {
                     let a_type = a.expression_type();
                     let b_type = b.expression_type();
                     if a_type != b_type
-                        && (a_type.scalar() != b_type.scalar() || b_type.width() != 1)
+                        && (a_type.scalar() != b_type.scalar() || !b_type.is_scalar())
                     {
-                        Some(("/", vec![a.to_string(), b.to_string()]))
+                        Some(("/", vec![a_type, b_type]))
                     } else {
                         None
                     }
@@ -1705,9 +1750,9 @@ pub mod expr {
                     let a_type = a.expression_type();
                     let b_type = b.expression_type();
                     if a_type != b_type
-                        && (a_type.scalar() != b_type.scalar() || b_type.width() != 1)
+                        && (a_type.scalar() != b_type.scalar() || !b_type.is_scalar())
                     {
-                        Some(("%", vec![a.to_string(), b.to_string()]))
+                        Some(("%", vec![a_type, b_type]))
                     } else {
                         None
                     }
@@ -1721,8 +1766,8 @@ pub mod expr {
                     b.validate_operands();
                     let a_type = a.expression_type();
                     let b_type = b.expression_type();
-                    if a_type != b_type {
-                        Some(("dot", vec![a.to_string(), b.to_string()]))
+                    if !a_type.is_vector() || a_type != b_type {
+                        Some(("dot", vec![a_type, b_type]))
                     } else {
                         None
                     }
@@ -1732,8 +1777,8 @@ pub mod expr {
                     b.validate_operands();
                     let a_type = a.expression_type();
                     let b_type = b.expression_type();
-                    if a_type != b_type {
-                        Some(("cross", vec![a.to_string(), b.to_string()]))
+                    if !a_type.is_vector() || a_type != b_type {
+                        Some(("cross", vec![a_type, b_type]))
                     } else {
                         None
                     }
@@ -1741,8 +1786,8 @@ pub mod expr {
                 Operator::Length(a) => {
                     a.validate_operands();
                     let a_type = a.expression_type();
-                    if a_type.width() < 2 {
-                        Some(("length", vec![a.to_string()]))
+                    if !a_type.is_vector() {
+                        Some(("length", vec![a_type]))
                     } else {
                         None
                     }
@@ -1750,8 +1795,8 @@ pub mod expr {
                 Operator::Normalize(a) => {
                     a.validate_operands();
                     let a_type = a.expression_type();
-                    if a_type.width() < 2 {
-                        Some(("normalize", vec![a.to_string()]))
+                    if !a_type.is_vector() {
+                        Some(("normalize", vec![a_type]))
                     } else {
                         None
                     }
@@ -1762,9 +1807,9 @@ pub mod expr {
                     let a_type = a.expression_type();
                     let b_type = b.expression_type();
                     if a_type != b_type
-                        && (a_type.scalar() != b_type.scalar() || b_type.width() != 1)
+                        && (a_type.scalar() != b_type.scalar() || !b_type.is_scalar())
                     {
-                        Some(("min", vec![a.to_string(), b.to_string()]))
+                        Some(("min", vec![a_type, b_type]))
                     } else {
                         None
                     }
@@ -1775,9 +1820,9 @@ pub mod expr {
                     let a_type = a.expression_type();
                     let b_type = b.expression_type();
                     if a_type != b_type
-                        && (a_type.scalar() != b_type.scalar() || b_type.width() != 1)
+                        && (a_type.scalar() != b_type.scalar() || !b_type.is_scalar())
                     {
-                        Some(("max", vec![a.to_string(), b.to_string()]))
+                        Some(("max", vec![a_type, b_type]))
                     } else {
                         None
                     }
@@ -1790,7 +1835,7 @@ pub mod expr {
                     let b_type = b.expression_type();
                     let c_type = c.expression_type();
                     if a_type != b_type && a_type != c_type {
-                        Some(("clamp", vec![a.to_string(), b.to_string(), c.to_string()]))
+                        Some(("clamp", vec![a_type, b_type, c_type]))
                     } else {
                         None
                     }
@@ -1799,7 +1844,7 @@ pub mod expr {
                     a.validate_operands();
                     let a_type = a.expression_type();
                     if a_type.scalar() != Scalar::F32 {
-                        Some(("floor", vec![a.to_string()]))
+                        Some(("floor", vec![a_type]))
                     } else {
                         None
                     }
@@ -1808,7 +1853,7 @@ pub mod expr {
                     a.validate_operands();
                     let a_type = a.expression_type();
                     if a_type.scalar() != Scalar::F32 {
-                        Some(("ceil", vec![a.to_string()]))
+                        Some(("ceil", vec![a_type]))
                     } else {
                         None
                     }
@@ -1817,7 +1862,7 @@ pub mod expr {
                     a.validate_operands();
                     let a_type = a.expression_type();
                     if a_type.scalar() != Scalar::F32 {
-                        Some(("round", vec![a.to_string()]))
+                        Some(("round", vec![a_type]))
                     } else {
                         None
                     }
@@ -1826,7 +1871,7 @@ pub mod expr {
                     a.validate_operands();
                     let a_type = a.expression_type();
                     if a_type.scalar() != Scalar::F32 {
-                        Some(("frac", vec![a.to_string()]))
+                        Some(("frac", vec![a_type]))
                     } else {
                         None
                     }
@@ -1835,7 +1880,7 @@ pub mod expr {
                     a.validate_operands();
                     let a_type = a.expression_type();
                     if a_type.scalar() != Scalar::F32 {
-                        Some(("sin", vec![a.to_string()]))
+                        Some(("sin", vec![a_type]))
                     } else {
                         None
                     }
@@ -1844,7 +1889,7 @@ pub mod expr {
                     a.validate_operands();
                     let a_type = a.expression_type();
                     if a_type.scalar() != Scalar::F32 {
-                        Some(("cos", vec![a.to_string()]))
+                        Some(("cos", vec![a_type]))
                     } else {
                         None
                     }
@@ -1853,7 +1898,7 @@ pub mod expr {
                     a.validate_operands();
                     let a_type = a.expression_type();
                     if a_type.scalar() != Scalar::F32 {
-                        Some(("tan", vec![a.to_string()]))
+                        Some(("tan", vec![a_type]))
                     } else {
                         None
                     }
@@ -1862,7 +1907,7 @@ pub mod expr {
                     a.validate_operands();
                     let a_type = a.expression_type();
                     if a_type.scalar() != Scalar::F32 {
-                        Some(("asin", vec![a.to_string()]))
+                        Some(("asin", vec![a_type]))
                     } else {
                         None
                     }
@@ -1871,7 +1916,7 @@ pub mod expr {
                     a.validate_operands();
                     let a_type = a.expression_type();
                     if a_type.scalar() != Scalar::F32 {
-                        Some(("acos", vec![a.to_string()]))
+                        Some(("acos", vec![a_type]))
                     } else {
                         None
                     }
@@ -1880,7 +1925,7 @@ pub mod expr {
                     a.validate_operands();
                     let a_type = a.expression_type();
                     if a_type.scalar() != Scalar::F32 {
-                        Some(("atan", vec![a.to_string()]))
+                        Some(("atan", vec![a_type]))
                     } else {
                         None
                     }
@@ -1890,8 +1935,8 @@ pub mod expr {
                     b.validate_operands();
                     let a_type = a.expression_type();
                     let b_type = b.expression_type();
-                    if a_type != b_type || a_type.scalar() != Scalar::F32 {
-                        Some(("atan2", vec![a.to_string(), b.to_string()]))
+                    if !a_type.is_scalar() || a_type != b_type {
+                        Some(("atan2", vec![a_type, b_type]))
                     } else {
                         None
                     }
@@ -1901,8 +1946,10 @@ pub mod expr {
                     b.validate_operands();
                     let a_type = a.expression_type();
                     let b_type = b.expression_type();
-                    if a_type != b_type || a_type.width() > 1 {
-                        Some(("pow", vec![a.to_string(), b.to_string()]))
+                    if a_type != ExpressionType::Scalar(Scalar::F32)
+                        || b_type != ExpressionType::Scalar(Scalar::F32)
+                    {
+                        Some(("pow", vec![a_type, b_type]))
                     } else {
                         None
                     }
@@ -1911,7 +1958,7 @@ pub mod expr {
                     a.validate_operands();
                     let a_type = a.expression_type();
                     if a_type != ExpressionType::Scalar(Scalar::F32) {
-                        Some(("exp", vec![a.to_string()]))
+                        Some(("exp", vec![a_type]))
                     } else {
                         None
                     }
@@ -1920,7 +1967,7 @@ pub mod expr {
                     a.validate_operands();
                     let a_type = a.expression_type();
                     if a_type != ExpressionType::Scalar(Scalar::F32) {
-                        Some(("log", vec![a.to_string()]))
+                        Some(("log", vec![a_type]))
                     } else {
                         None
                     }
@@ -1929,7 +1976,7 @@ pub mod expr {
                     a.validate_operands();
                     let a_type = a.expression_type();
                     if a_type != ExpressionType::Scalar(Scalar::F32) {
-                        Some(("sqrt", vec![a.to_string()]))
+                        Some(("sqrt", vec![a_type]))
                     } else {
                         None
                     }
@@ -1938,7 +1985,7 @@ pub mod expr {
                     a.validate_operands();
                     let a_type = a.expression_type();
                     if a_type != ExpressionType::Scalar(Scalar::F32) {
-                        Some(("inversesqrt", vec![a.to_string()]))
+                        Some(("inversesqrt", vec![a_type]))
                     } else {
                         None
                     }
@@ -1951,7 +1998,7 @@ pub mod expr {
                     a.validate_operands();
                     let a_type = a.expression_type();
                     if a_type != ExpressionType::Scalar(Scalar::F32) {
-                        Some(("sign", vec![a.to_string()]))
+                        Some(("sign", vec![a_type]))
                     } else {
                         None
                     }
@@ -1967,7 +2014,7 @@ pub mod expr {
                         || a_type.scalar() != Scalar::F32
                         || c_type != ExpressionType::Scalar(Scalar::F32)
                     {
-                        Some(("mix", vec![a.to_string(), b.to_string(), c.to_string()]))
+                        Some(("mix", vec![a_type, b_type, c_type]))
                     } else {
                         None
                     }
@@ -1977,8 +2024,13 @@ pub mod expr {
                     b.validate_operands();
                     let a_type = a.expression_type();
                     let b_type = b.expression_type();
-                    if a_type.scalar() != b_type.scalar() || a_type.width() + b_type.width() > 4 {
-                        Some(("concat", vec![a.to_string(), b.to_string()]))
+                    if a_type.scalar() != b_type.scalar()
+                        || (!a_type.is_vector() && !a_type.is_scalar())
+                        || (!b_type.is_vector() && !b_type.is_scalar())
+                        // The unwrap is safe because we know that the types are scalars or vectors.
+                        || a_type.width().unwrap_or_default() + b_type.width().unwrap_or_default() > 4
+                    {
+                        Some(("concat", vec![a_type, b_type]))
                     } else {
                         None
                     }
@@ -1992,8 +2044,10 @@ pub mod expr {
                     b.validate_operands();
                     let a_type = a.expression_type();
                     let b_type = b.expression_type();
-                    if a_type.width() < 2 || b_type != ExpressionType::Scalar(Scalar::I32) {
-                        Some(("get", vec![a.to_string(), b.to_string()]))
+                    if !(a_type.is_vector() || a_type.is_matrix())
+                        || b_type != ExpressionType::Scalar(Scalar::I32)
+                    {
+                        Some(("get", vec![a_type, b_type]))
                     } else {
                         None
                     }
@@ -2006,16 +2060,29 @@ pub mod expr {
                     if expected_type != ExpressionType::Scalar(Scalar::F32)
                         && expected_type != ExpressionType::Scalar(Scalar::I32)
                     {
-                        Some(("matrix4x4", a.iter().map(ToString::to_string).collect()))
+                        Some((
+                            "matrix4x4",
+                            a.iter().map(Expression::expression_type).collect(),
+                        ))
                     } else {
                         None
                     }
                 }
             } {
+                // Panic if the operator is not valid for its operand types.
                 panic!(
-                    "Invalid operand(s) for {} operator: {}",
+                    "Invalid operand type(s) for {} operator: {}",
                     operator_str,
-                    operand_strings.join(", ")
+                    operand_types.into_iter().map(ExpressionType::to_str).fold(
+                        String::new(),
+                        |mut acc, type_str| {
+                            if !acc.is_empty() {
+                                acc.push_str(", ");
+                            }
+                            acc.push_str(type_str);
+                            acc
+                        }
+                    )
                 );
             }
 
@@ -2060,7 +2127,8 @@ pub mod expr {
                     if let ExpressionClass::Constant(Constant::I32(index)) =
                         b.class.as_ref().unwrap()
                     {
-                        if *index < 0 || *index >= a.expression_type().width() as i32 {
+                        // The below unwrap is valid because the previous type check ensures that the type of a has a width.
+                        if *index < 0 || *index >= a.expression_type().width().unwrap() as i32 {
                             panic!("Invalid constant index {} for {}", *index, a.to_string());
                         }
                     }
@@ -2073,10 +2141,14 @@ pub mod expr {
             match self {
                 Operator::Add(a, _) => a.expression_type(),
                 Operator::Sub(a, _) => a.expression_type(),
-                Operator::Mul(a, b) => match a.expression_type() {
-                    ExpressionType::Matrix4x4(_) => b.expression_type(),
-                    ty => ty,
-                },
+                Operator::Mul(a, b) => {
+                    let b_type = b.expression_type();
+                    if b_type.is_vector() {
+                        b_type
+                    } else {
+                        a.expression_type()
+                    }
+                }
                 Operator::Div(a, _) => a.expression_type(),
                 Operator::Rem(a, _) => a.expression_type(),
                 Operator::Neg(a) => a.expression_type(),
@@ -2107,7 +2179,27 @@ pub mod expr {
                 Operator::Sign(_) => ExpressionType::Scalar(Scalar::I32),
                 Operator::Mix(a, _, _) => a.expression_type(),
                 Operator::Concat(a, b) => {
-                    a.expression_type().plus_width(b.expression_type().width())
+                    let a_type = a.expression_type();
+                    let b_type = b.expression_type();
+                    if b_type.is_vector() {
+                        a_type
+                            .plus_width(
+                                b_type
+                                    .width()
+                                    .unwrap()
+                            )
+                            .unwrap_or(a_type)
+                    }
+                    else if b_type.is_scalar() {
+                        a_type
+                            .plus_width(
+                                1
+                            )
+                            .unwrap_or(a_type)
+                    }
+                    else {
+                        ExpressionType::Scalar(Scalar::F32)
+                    }
                 }
                 Operator::Convert(_, ty) => *ty,
                 Operator::Get(a, _) => ExpressionType::Scalar(a.expression_type().scalar()),

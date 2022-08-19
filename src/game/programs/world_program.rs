@@ -5,13 +5,15 @@ pub struct WorldProgram;
 
 impl ProgramTemplate for WorldProgram {
     fn create_program(&self, gfx: &Gfx) -> Program {
-        ProgramBuilder::<DebugVertex>::new()
+        let builder = ProgramBuilder::<DebugVertex>::new()
             .with_uniforms(program_uniforms! {
                 mesh_position: Vector3<f32>,
             })
             .with_camera()
             .with_vertex_module(vertex_main)
-            .with_fragment_module(fragment_main)
+            .with_fragment_module(fragment_main);
+        println!("\n############################\nVertex code:\n\n{}\n\n############################\n", builder.vertex_code());
+        builder
             .build(gfx)
     }
 }

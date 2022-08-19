@@ -3,7 +3,11 @@ use std::time::Duration;
 use ggmath::{vector, vector_alias::Vector2};
 use tokio::time::Instant;
 
-use crate::{app_window::{AppWindow, AppWindowUpdateEvent}, gfx::Gfx, scene::Scene};
+use crate::{
+    app_window::{AppWindow, AppWindowUpdateEvent},
+    gfx::Gfx,
+    scene::Scene,
+};
 
 pub struct App {
     title: String,
@@ -75,13 +79,17 @@ impl App {
 
             for update_event in window_update_events {
                 match update_event {
-                    AppWindowUpdateEvent::KeyAction { key, action, modifiers } => {
+                    AppWindowUpdateEvent::KeyAction {
+                        key,
+                        action,
+                        modifiers,
+                    } => {
                         scene.__key_action(key, action, modifiers);
-                    },
-                    AppWindowUpdateEvent::Closed => {},
+                    }
+                    AppWindowUpdateEvent::Closed => {}
                     AppWindowUpdateEvent::MouseMove { position } => {
                         scene.__mouse_move(position);
-                    },
+                    }
                 }
             }
 

@@ -2,9 +2,11 @@ use game_components::physics::Physics;
 
 use crate::game::*;
 
-const PLAYER_ACCELERATION: f32 = 8.0;
-const PLAYER_FRICTION: f32 = 8.0;
-const PLAYER_PITCH_LIMIT: f32 = std::f32::consts::PI * 0.49;
+use super::world::{VoxelPosition, VoxelUnits};
+
+const PLAYER_ACCELERATION: f32 = 30.0;
+const PLAYER_FRICTION: f32 = 10.0;
+const PLAYER_PITCH_LIMIT: f32 = std::f32::consts::PI * 0.3;
 
 define_class! {
     pub class Player {
@@ -20,14 +22,8 @@ impl Player {
     /// Creates a new player.
     pub fn new(position: Vector3<f32>, fov: f32) -> Self {
         Self {
-            location: Location::new(position, Quaternion::new_identity(), Vector3::one()),
-            camera: Camera {
-                target_node: None,
-                fov,
-                near: 0.1,
-                far: 150.0,
-                rotation: Quaternion::new_identity(),
-            },
+            location: Location::new(position, Quaternion::identity(), Vector3::one()),
+            camera: Camera::new_perspective(None, fov, 0.05, 100.0),
             physics: Physics {
                 velocity: Vector3::zero(),
             },
@@ -42,18 +38,33 @@ impl Player {
     }
 
     /// Simulate a step of player movement.
-    pub fn simulate_movement(&mut self, player_location: &Location, frame_delta: Duration) {
+    /// Returns whether the player has moved
+    pub fn simulate_movement(&mut self, player_location: &Location, frame_delta: Duration) -> bool {
         let delta_f32 = frame_delta.as_secs_f32();
         // Get the player-local motion vector from the key state
         let local_motion_vector = self.key_state.to_local_motion_vector().unwrap_or_default();
         // Make the motion vector local to the player's parent node
-        let motion_vector = player_location.delocalize_direction(local_motion_vector) * player_location.delocalize_scale(vector!(PLAYER_ACCELERATION, PLAYER_ACCELERATION, PLAYER_ACCELERATION));
+        let motion_vector = player_location.delocalize_direction(local_motion_vector)
+            * player_location.delocalize_scale(vector!(
+                PLAYER_ACCELERATION,
+                PLAYER_ACCELERATION,
+                PLAYER_ACCELERATION
+            ));
         // Add the motion vector to the player's velocity
         self.physics.velocity = self.physics.velocity + motion_vector * delta_f32;
         // Update the player's location
-        self.location.position = self.location.position + self.physics.velocity * delta_f32;
+        let player_moved = if self.physics.velocity.length_squared() > 0.0 {
+            self.location.translate(self.physics.velocity * delta_f32);
+            true
+        }
+        else {
+            false
+        };
         // Apply friction to the player's velocity
-        self.physics.velocity = self.physics.velocity * (1.0 - (PLAYER_FRICTION * delta_f32).min(1.0));
+        self.physics.velocity =
+            self.physics.velocity * (1.0 - (PLAYER_FRICTION * delta_f32).min(1.0));
+        // Return whether the player moved
+        player_moved
     }
 
     /// Simulate a key action.
@@ -72,13 +83,35 @@ impl Player {
         self.look.add_yaw(mouse_delta.x() * sensitivity);
         self.look.add_pitch(mouse_delta.y() * sensitivity);
 
-        self.location.rotation = self.look.to_location_rotation();
-        self.camera.rotation = self.look.to_local_rotation();
+        self.location.set_rotation(self.look.to_location_rotation());
+        self.camera.set_rotation(self.look.to_local_rotation());
     }
 
     /// Get the player location.
     pub fn location(&self) -> &Location {
         &self.location
+    }
+
+    pub fn world_position(&self) -> Vector3<f64> {
+        let position = self.location.position();
+        vector!(
+            position.x() as f64,
+            position.y() as f64,
+            position.z() as f64
+        )
+    }
+
+    pub fn set_world_position(&mut self, position: Vector3<f64>) {
+        self.location.set_position(vector!(
+            position.x() as f32,
+            position.y() as f32,
+            position.z() as f32
+        ));
+    }
+
+    pub fn voxel_position(&self) -> VoxelPosition {
+        let position = self.location.position();
+        vector!(VoxelUnits::from(position.x().floor() as i64), VoxelUnits::from(position.y().floor() as i64), VoxelUnits::from(position.z().floor() as i64))
     }
 }
 
@@ -96,13 +129,16 @@ impl PlayerKeyState {
     fn to_local_motion_vector(&self) -> Option<Vector3<f32>> {
         if !self.forward && !self.backward && !self.left && !self.right {
             None
-        }
-        else {
-            Some(vector!(
-                (if self.right { 1.0 } else { 0.0 }) - (if self.left { 1.0 } else { 0.0 }),
-                0.0,
-                (if self.backward { 1.0 } else { 0.0 }) - (if self.forward { 1.0 } else { 0.0 }),
-            ).normalized())
+        } else {
+            Some(
+                vector!(
+                    (if self.right { 1.0 } else { 0.0 }) - (if self.left { 1.0 } else { 0.0 }),
+                    0.0,
+                    (if self.backward { 1.0 } else { 0.0 })
+                        - (if self.forward { 1.0 } else { 0.0 }),
+                )
+                .normalized(),
+            )
         }
     }
 }
@@ -129,8 +165,7 @@ impl Look {
         let new_yaw = (self.yaw + amount) % std::f32::consts::TAU;
         if new_yaw < 0.0 {
             self.yaw = new_yaw + std::f32::consts::TAU;
-        }
-        else {
+        } else {
             self.yaw = new_yaw;
         }
     }

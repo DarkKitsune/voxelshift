@@ -3,6 +3,7 @@
 #![feature(const_fn_floating_point_arithmetic)]
 #![feature(inline_const_pat)]
 #![feature(const_type_id)]
+#![feature(step_trait)]
 
 use ggmath::vector;
 

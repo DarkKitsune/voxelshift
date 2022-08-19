@@ -2,9 +2,10 @@ use std::{any::Any, collections::HashMap, time::Duration};
 
 use ggmath::{
     prelude::{Matrix3x3, Matrix4x4},
-    vector_alias::Vector2,
+    vector_alias::{Vector2, Vector3}, quaternion::Quaternion,
 };
-use glfw::{Modifiers, Action, Key};
+use ggutil::prelude::Handle;
+use glfw::{Action, Key, Modifiers};
 use multiverse_ecs::universe::{NodesIter, Universe};
 
 use crate::{
@@ -20,7 +21,7 @@ pub struct SceneBuilder {
     clear_color: Option<Color>,
     on_init: Option<fn(&mut Scene, &Gfx)>,
     on_update: Option<fn(&mut Scene, Duration)>,
-    on_render: Option<fn(&mut Scene, &Gfx, &Framebuffer, Vector2<u32>, Duration)>,
+    on_render: Option<fn(&mut Scene, &Gfx, &Framebuffer, &RenderCamera, Vector2<u32>, Duration)>,
     on_key: Option<fn(&mut Scene, Key, Action, Modifiers)>,
     on_mouse_move: Option<fn(&mut Scene, Vector2<f32>)>,
 }
@@ -59,7 +60,7 @@ impl SceneBuilder {
     /// Sets the render event callback.
     pub fn on_render(
         mut self,
-        on_render: fn(&mut Scene, &Gfx, &Framebuffer, Vector2<u32>, Duration),
+        on_render: fn(&mut Scene, &Gfx, &Framebuffer, &RenderCamera, Vector2<u32>, Duration),
     ) -> Self {
         self.on_render = Some(on_render);
         self
@@ -97,10 +98,11 @@ pub struct Scene {
     clear_color: Option<Color>,
     on_init: Option<fn(&mut Scene, &Gfx)>,
     on_update: Option<fn(&mut Scene, Duration)>,
-    on_render: Option<fn(&mut Scene, &Gfx, &Framebuffer, Vector2<u32>, Duration)>,
+    on_render: Option<fn(&mut Scene, &Gfx, &Framebuffer, &RenderCamera, Vector2<u32>, Duration)>,
     on_key: Option<fn(&mut Scene, Key, Action, Modifiers)>,
     on_mouse_move: Option<fn(&mut Scene, Vector2<f32>)>,
     last_mouse_position: Option<Vector2<f32>>,
+    anchor_location: Option<Location>,
 }
 
 impl Scene {
@@ -109,7 +111,7 @@ impl Scene {
         clear_color: Option<Color>,
         on_init: Option<fn(&mut Scene, &Gfx)>,
         on_update: Option<fn(&mut Scene, Duration)>,
-        on_render: Option<fn(&mut Scene, &Gfx, &Framebuffer, Vector2<u32>, Duration)>,
+        on_render: Option<fn(&mut Scene, &Gfx, &Framebuffer, &RenderCamera, Vector2<u32>, Duration)>,
         on_key: Option<fn(&mut Scene, Key, Action, Modifiers)>,
         on_mouse_move: Option<fn(&mut Scene, Vector2<f32>)>,
     ) -> Self {
@@ -123,17 +125,22 @@ impl Scene {
             on_key,
             on_mouse_move,
             last_mouse_position: None,
+            anchor_location: None,
         }
     }
 
     /// Calls the init event on the scene.
     pub fn __init(&mut self, gfx: &Gfx) {
-        self.on_init.as_ref().expect("No on_init function set in the scene")(self, gfx);
+        self.on_init
+            .as_ref()
+            .expect("No on_init function set in the scene")(self, gfx);
     }
 
     /// Calls the update event on the scene.
     pub fn __update(&mut self, frame_delta: Duration) {
-        self.on_update.as_ref().expect("No on_update function set in the scene")(self, frame_delta);
+        self.on_update
+            .as_ref()
+            .expect("No on_update function set in the scene")(self, frame_delta);
     }
 
     /// Calls the render event on the scene.
@@ -149,52 +156,44 @@ impl Scene {
             gfx.clear_color(framebuffer, clear_color);
         }
 
-        self.on_render.as_ref().expect("No on_render function set in the scene")(self, gfx, framebuffer, window_size, frame_delta);
-
         // Render from nodes in universe
         if let Some((camera_node, camera)) = self.universe.nodes().with_component::<Camera>().next()
         {
-            let camera_location = camera_node
-                .component::<Location>()
-                .expect("Camera node has no Location component");
-            let camera_rotation_matrix = Matrix3x3::from(camera_location.rotation.and_then(&camera.rotation));
+            let absolute_camera_location = self.get_absolute_location(camera_node.handle().clone());
+            let absolute_camera_rotation_matrix = Matrix3x3::from(absolute_camera_location.delocalize_rotation(camera.rotation()));
 
             // Set the camera
-            let camera_position = camera_location.position;
-            let camera_target = if let Some(camera_target_handle) = camera.target_node.as_ref() {
-                if let Some(target_location) = self
-                    .universe
-                    .node(&camera_target_handle)
-                    .expect("Camera target node does not exist")
-                    .component::<Location>()
-                {
-                    Some(target_location.position)
-                } else {
-                    None
-                }
+            let absolute_camera_position = absolute_camera_location.position();
+            let absolute_camera_target = if let Some(camera_target_handle) = camera.target() {
+                Some(self.get_absolute_location(camera_target_handle.clone()))
             } else {
                 None
             };
-            let camera_direction = camera_target
-                .map(|target| (target - camera_position).normalized())
-                .unwrap_or_else(|| -camera_rotation_matrix.z_axis());
-            let camera = RenderCamera::new(
-                camera_position,
-                camera_direction,
-                camera_rotation_matrix.y_axis(),
-                Matrix4x4::new_projection_perspective(
-                    camera.fov,
-                    window_size.x() as f32 / window_size.y() as f32,
-                    camera.near,
-                    camera.far,
-                ),
+            let absolute_camera_direction = absolute_camera_target
+                .map(|target| (target.position() - absolute_camera_position).normalized())
+                .unwrap_or_else(|| -absolute_camera_rotation_matrix.z_axis());
+            let aspect_ratio = window_size.x() as f32 / window_size.y() as f32;
+            let render_camera = RenderCamera::new(
+                absolute_camera_position,
+                absolute_camera_direction,
+                absolute_camera_rotation_matrix.y_axis(),
+                camera.projection_matrix(aspect_ratio),
+            );
+
+            self.on_render
+                .as_ref()
+                .expect("No on_render function set in the scene")(
+                self,
+                gfx,
+                framebuffer,
+                &render_camera,
+                window_size,
+                frame_delta,
             );
 
             // Render mesh objects
             for (node, mesh_renderer) in self.universe.nodes().with_component::<MeshRenderer>() {
-                let location = node
-                    .component::<Location>()
-                    .expect("Node was missing a location component");
+                let absolute_mesh_location = self.get_absolute_location(node.handle().clone());
                 let mesh = &mesh_renderer.mesh;
                 let program = &mesh_renderer.program;
                 gfx.render_mesh(
@@ -202,9 +201,9 @@ impl Scene {
                     program,
                     mesh,
                     1,
-                    Some(&camera),
+                    Some(&render_camera),
                     render_uniforms! [
-                        mesh_position: location.position,
+                        mesh_position: absolute_mesh_location.position(),
                     ],
                 );
             }
@@ -213,14 +212,18 @@ impl Scene {
 
     /// Calls the key event on the scene.
     pub fn __key_action(&mut self, key: Key, action: Action, modifiers: Modifiers) {
-        self.on_key.as_ref().expect("No on_key function set in the scene")(self, key, action, modifiers);
+        self.on_key
+            .as_ref()
+            .expect("No on_key function set in the scene")(self, key, action, modifiers);
     }
 
     /// Calls the mouse move event on the scene.
     pub fn __mouse_move(&mut self, position: Vector2<f32>) {
         if let Some(last_mouse_position) = self.last_mouse_position {
             let delta = position - last_mouse_position;
-            self.on_mouse_move.as_ref().expect("No on_mouse_move function set in the scene")(self, delta);
+            self.on_mouse_move
+                .as_ref()
+                .expect("No on_mouse_move function set in the scene")(self, delta);
         }
         self.last_mouse_position = Some(position);
     }
@@ -289,5 +292,41 @@ impl Scene {
         template: &impl ProgramTemplate,
     ) {
         self.insert(name, template.create_program(gfx));
+    }
+
+    /// Gets the location of a node, local to the given location
+    pub fn get_location_local_to_location(&self, node_handle: Handle, local_to: Location) -> Location {
+        let node = self
+            .universe
+            .node(&node_handle)
+            .expect("Invalid handle passed as \"node_handle\"");
+
+        let node_location = node
+            .component::<Location>()
+            .expect("Node pointed to by \"node_handle\" does not have a Location component");
+        
+        // Calculate the absolute location of the node
+        let absolute_location = if let Some(parent) = node.parent() {
+            // If the parent has a location, delocalize the location from it
+            self.get_location_local_to_location(parent.clone(), local_to.clone()).delocalize_location(node_location.clone())
+        } else {
+            node_location.clone()
+        };
+
+        // Make the absolute location local to local_to
+        local_to.localize_location(absolute_location)
+    }
+
+    /// Gets the location of a node, local to the scene anchor
+    pub fn get_absolute_location(&self, node_handle: Handle) -> Location {
+        self.get_location_local_to_location(node_handle, self.anchor_location.clone().unwrap_or_default())
+    }
+
+    pub fn set_anchor_location(&mut self, location: Option<Location>) {
+        self.anchor_location = location;
+    }
+
+    pub fn anchor_location(&self) -> Option<Location> {
+        self.anchor_location.clone()
     }
 }

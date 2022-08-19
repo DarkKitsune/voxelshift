@@ -1,14 +1,14 @@
 pub mod game_classes;
 pub mod game_components;
 pub mod game_scene;
-pub mod programs;
 pub mod player_code;
+pub mod programs;
+pub mod voxel;
+pub mod world_generator;
 
 pub use crate::{
-    colors::Color, components::*, gfx::*, program_builder::*, proto_mesh::*, scene::*,
-    vertex::DebugVertex,
-    program_uniforms,
-    render_uniforms,
+    colors::Color, components::*, gfx::*, program_builder::*, program_uniforms, proto_mesh::*,
+    render_uniforms, scene::*, vertex::DebugVertex,
 };
 pub use game_classes::*;
 pub use game_components::*;
