@@ -124,6 +124,9 @@ impl Gfx {
 
     /// Creates a mesh object
     pub fn create_mesh<V: Vertex>(&self, proto_mesh: &ProtoMesh) -> Mesh<V> {
+        if proto_mesh.elements().len() == 0 {
+            panic!("Cannot create a mesh from an empty ProtoMesh");
+        }
         let vertices: Vec<_> = proto_mesh.convert_vertices::<V>().collect();
         let elements = proto_mesh.elements();
         let vertex_buffer = self.create_buffer(BufferType::VERTEX, BufferData::Data(&vertices));
@@ -480,6 +483,9 @@ impl Program {
         uniforms: HashMap<String, ExpressionType>,
     ) -> Self {
         let shaders = shaders.as_ref();
+        if shaders.len() == 0 {
+            panic!("No shaders provided to Program::new");
+        }
         let gl_program = unsafe {
             // Create the program
             let gl_program = gl::CreateProgram();
@@ -638,9 +644,9 @@ impl Program {
 
     /// Set the value of a uniform variable in the program
     fn set_camera(&self, camera: &RenderCamera) {
-        let _ = self.set_uniform_value("_camera_position", camera.position);
-        let _ = self.set_uniform_value("_camera_direction", camera.direction);
-        let _ = self.set_uniform_value("_camera_up", camera.up);
+        let _ = self.set_uniform_value("_camera_position", camera.position.convert_to::<f32>().unwrap());
+        let _ = self.set_uniform_value("_camera_direction", camera.direction.convert_to::<f32>().unwrap());
+        let _ = self.set_uniform_value("_camera_up", camera.up.convert_to::<f32>().unwrap());
         let _ = self.set_uniform_value("_camera_projection", camera.projection);
     }
 }
@@ -674,6 +680,9 @@ gfx_object_struct! {
 
 impl<T: Copy> Buffer<T> {
     fn new(buffer_type: BufferType, data: BufferData<'_, T>) -> Self {
+        if size_of::<T>() == 0 {
+            panic!("Cannot create a buffer containing a type with a size of 0");
+        }
         let gl_buffer = unsafe {
             // Create the buffer
             let mut gl_buffer = 0;
@@ -681,6 +690,9 @@ impl<T: Copy> Buffer<T> {
             // Fill the buffer with the contents of 'data'
             match data {
                 BufferData::Uninitialized(capacity) => {
+                    if capacity == 0 {
+                        panic!("Cannot create a buffer with a capacity of 0");
+                    }
                     gl::NamedBufferStorage(
                         gl_buffer,
                         (capacity * size_of::<T>()) as GLsizeiptr,
@@ -689,6 +701,9 @@ impl<T: Copy> Buffer<T> {
                     );
                 }
                 BufferData::Data(data) => {
+                    if data.len() == 0 {
+                        panic!("Cannot create a buffer from an empty slice");
+                    }
                     gl::NamedBufferStorage(
                         gl_buffer,
                         (data.len() * size_of::<T>()) as GLsizeiptr,
@@ -763,6 +778,9 @@ gfx_object_struct! {
 
 impl<V: Vertex> Mesh<V> {
     fn new(vertex_buffer: &Buffer<V>, element_buffer: &Buffer<u32>, element_count: usize) -> Self {
+        if element_count == 0 {
+            panic!("Cannot create a mesh with 0 elements");
+        }
         let vertex_array = unsafe {
             // Create vertex array
             let mut vertex_array = 0;
@@ -907,17 +925,17 @@ impl UniformValue for Matrix4x4<f32> {
 
 /// Represents a camera for rendering
 pub struct RenderCamera {
-    position: Vector3<f32>,
-    direction: Vector3<f32>,
-    up: Vector3<f32>,
+    position: Vector3<f64>,
+    direction: Vector3<f64>,
+    up: Vector3<f64>,
     projection: Matrix4x4<f32>,
 }
 
 impl RenderCamera {
     pub fn new(
-        position: Vector3<f32>,
-        direction: Vector3<f32>,
-        up: Vector3<f32>,
+        position: Vector3<f64>,
+        direction: Vector3<f64>,
+        up: Vector3<f64>,
         projection: Matrix4x4<f32>,
     ) -> Self {
         let direction = direction.normalized();

@@ -24,7 +24,7 @@ pub struct SceneBuilder {
     on_update: Option<fn(&mut Scene, Duration)>,
     on_render: Option<fn(&mut Scene, &Gfx, &Framebuffer, &RenderCamera, Vector2<u32>, Duration)>,
     on_key: Option<fn(&mut Scene, Key, Action, Modifiers)>,
-    on_mouse_move: Option<fn(&mut Scene, Vector2<f32>)>,
+    on_mouse_move: Option<fn(&mut Scene, Vector2<f64>)>,
 }
 
 impl SceneBuilder {
@@ -74,7 +74,7 @@ impl SceneBuilder {
     }
 
     /// Sets the mouse move event callback.
-    pub fn on_mouse_move(mut self, on_mouse_move: fn(&mut Scene, Vector2<f32>)) -> Self {
+    pub fn on_mouse_move(mut self, on_mouse_move: fn(&mut Scene, Vector2<f64>)) -> Self {
         self.on_mouse_move = Some(on_mouse_move);
         self
     }
@@ -101,8 +101,8 @@ pub struct Scene {
     on_update: Option<fn(&mut Scene, Duration)>,
     on_render: Option<fn(&mut Scene, &Gfx, &Framebuffer, &RenderCamera, Vector2<u32>, Duration)>,
     on_key: Option<fn(&mut Scene, Key, Action, Modifiers)>,
-    on_mouse_move: Option<fn(&mut Scene, Vector2<f32>)>,
-    last_mouse_position: Option<Vector2<f32>>,
+    on_mouse_move: Option<fn(&mut Scene, Vector2<f64>)>,
+    last_mouse_position: Option<Vector2<f64>>,
     anchor_location: Option<Location>,
 }
 
@@ -116,7 +116,7 @@ impl Scene {
             fn(&mut Scene, &Gfx, &Framebuffer, &RenderCamera, Vector2<u32>, Duration),
         >,
         on_key: Option<fn(&mut Scene, Key, Action, Modifiers)>,
-        on_mouse_move: Option<fn(&mut Scene, Vector2<f32>)>,
+        on_mouse_move: Option<fn(&mut Scene, Vector2<f64>)>,
     ) -> Self {
         Self {
             universe: Universe::new(),
@@ -176,7 +176,7 @@ impl Scene {
             let absolute_camera_direction = absolute_camera_target
                 .map(|target| (target.position() - absolute_camera_position).normalized())
                 .unwrap_or_else(|| -absolute_camera_rotation_matrix.z_axis());
-            let aspect_ratio = window_size.x() as f32 / window_size.y() as f32;
+            let aspect_ratio = window_size.x() as f64 / window_size.y() as f64;
             let render_camera = RenderCamera::new(
                 absolute_camera_position,
                 absolute_camera_direction,
@@ -207,7 +207,7 @@ impl Scene {
                     1,
                     Some(&render_camera),
                     render_uniforms! [
-                        mesh_position: absolute_mesh_location.position(),
+                        mesh_position: absolute_mesh_location.position().convert_to::<f32>().unwrap(),
                     ],
                 );
             }
@@ -222,7 +222,7 @@ impl Scene {
     }
 
     /// Calls the mouse move event on the scene.
-    pub fn __mouse_move(&mut self, position: Vector2<f32>) {
+    pub fn __mouse_move(&mut self, position: Vector2<f64>) {
         if let Some(last_mouse_position) = self.last_mouse_position {
             let delta = position - last_mouse_position;
             self.on_mouse_move

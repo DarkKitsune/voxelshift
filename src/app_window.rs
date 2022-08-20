@@ -133,7 +133,7 @@ impl AppWindow {
                     }
                     glfw::WindowEvent::CursorPos(x, y) => {
                         update_events.push(AppWindowUpdateEvent::MouseMove {
-                            position: vector!(x as f32, y as f32),
+                            position: vector!(x, y),
                         });
                     }
                     _ => {}
@@ -224,6 +224,6 @@ pub enum AppWindowUpdateEvent {
     /// The mouse was moved
     MouseMove {
         /// The change in position of the mouse
-        position: Vector2<f32>,
+        position: Vector2<f64>,
     },
 }

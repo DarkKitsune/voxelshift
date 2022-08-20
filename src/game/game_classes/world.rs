@@ -11,7 +11,7 @@ use num::{One, Zero};
 use crate::game::{voxel::Voxel, *};
 
 pub const VOXELS_PER_CHUNK: VoxelUnits = VoxelUnits(20);
-pub const VOXELS_PER_METER: VoxelUnits = VoxelUnits(2);
+pub const VOXELS_PER_METER: VoxelUnits = VoxelUnits(3);
 const CHUNK_LIFE_SECONDS: u64 = 5;
 const EXTEND_IN_VIEW_IS_SPHERICAL: bool = true;
 
@@ -56,7 +56,7 @@ impl World {
     pub fn chunk_meshes<'a>(
         &'a mut self,
         gfx: &'a Gfx,
-    ) -> impl Iterator<Item = (Location, &'a Mesh<DebugVertex>)> + 'a {
+    ) -> impl Iterator<Item = (Location, Option<&'a Mesh<DebugVertex>>)> + 'a {
         self.world_chunks.meshes(gfx)
     }
 
@@ -192,15 +192,15 @@ impl Chunks {
     fn meshes<'a>(
         &'a mut self,
         gfx: &'a Gfx,
-    ) -> impl Iterator<Item = (Location, &'a Mesh<DebugVertex>)> + 'a {
+    ) -> impl Iterator<Item = (Location, Option<&'a Mesh<DebugVertex>>)> + 'a {
         self.chunks.iter_mut().map(|(chunk_position, chunk)| {
             let chunk_voxel_position = chunk_position.to_voxel_position();
             (
                 Location::new(
                     vector!(
-                        chunk_voxel_position.x().into_i64() as f32,
-                        chunk_voxel_position.y().into_i64() as f32,
-                        chunk_voxel_position.z().into_i64() as f32
+                        chunk_voxel_position.x().into_i64() as f64,
+                        chunk_voxel_position.y().into_i64() as f64,
+                        chunk_voxel_position.z().into_i64() as f64
                     ),
                     Quaternion::identity(),
                     Vector::one(),
@@ -214,7 +214,6 @@ impl Chunks {
 #[derive(Debug)]
 pub struct Chunk {
     last_extended: Instant,
-    position: ChunkPosition,
     voxels: Voxels,
     mesh: Option<Mesh<DebugVertex>>,
 }
@@ -226,8 +225,7 @@ impl Chunk {
         constructor: impl FnMut(VoxelPosition) -> Option<Voxel>,
     ) -> Self {
         Self {
-            last_extended: Instant::now(),
-            position,
+            last_extended: now,
             voxels: Voxels::new(position, constructor),
             mesh: None,
         }
@@ -241,11 +239,11 @@ impl Chunk {
         self.last_extended.elapsed().as_secs() < CHUNK_LIFE_SECONDS
     }
 
-    fn mesh(&mut self, gfx: &Gfx) -> &Mesh<DebugVertex> {
+    fn mesh(&mut self, gfx: &Gfx) -> Option<&Mesh<DebugVertex>> {
         if self.mesh.is_none() {
             self.generate_mesh(gfx);
         }
-        self.mesh.as_ref().unwrap()
+        self.mesh.as_ref()
     }
 
     fn generate_mesh(&mut self, gfx: &Gfx) {
@@ -335,12 +333,16 @@ impl Chunk {
                     } else {
                         mx_free = true;
                     }
-                    voxel_mesh_center = voxel_mesh_center + vector!(1.0, 0.0, 0.0);
+                    voxel_mesh_center = voxel_mesh_center + Vector::unit_x();
                 }
             }
         }
 
-        self.mesh = Some(gfx.create_mesh::<DebugVertex>(&proto_mesh));
+        if proto_mesh.elements().is_empty() {
+            self.mesh = None;
+        } else {
+            self.mesh = Some(gfx.create_mesh::<DebugVertex>(&proto_mesh));
+        }
     }
 }
 
@@ -350,10 +352,6 @@ struct Voxels {
 }
 
 impl Voxels {
-    const fn no_voxel(_: ChunkPosition, _: VoxelPosition) -> Option<Voxel> {
-        None
-    }
-
     fn new(
         chunk_position: ChunkPosition,
         mut constructor: impl FnMut(VoxelPosition) -> Option<Voxel>,
@@ -683,25 +681,13 @@ impl VoxelPositionExt for VoxelPosition {
             / VOXELS_PER_CHUNK.0 as f64;
         let floored_float_chunk = float_chunk.map(|f| f.floor());
         (
-            vector!(
-                (floored_float_chunk.x() as i64).into(),
-                (floored_float_chunk.y() as i64).into(),
-                (floored_float_chunk.z() as i64).into()
-            ),
-            vector!(
-                (((float_chunk.x() - floored_float_chunk.x()) * VOXELS_PER_CHUNK.0 as f64) as i64)
-                    .into(),
-                (((float_chunk.y() - floored_float_chunk.y()) * VOXELS_PER_CHUNK.0 as f64) as i64)
-                    .into(),
-                (((float_chunk.z() - floored_float_chunk.z()) * VOXELS_PER_CHUNK.0 as f64) as i64)
-                    .into(),
-            )
-            .into(),
+            floored_float_chunk.map(|c| (*c as i64).into()),
+            ((float_chunk - floored_float_chunk) * VOXELS_PER_CHUNK.0 as f64).map(|c| (*c as i64).into()).into(),
         )
     }
 
     fn center_position(&self) -> Vector3<f64> {
-        vector!(self.x().0 as f64, self.y().0 as f64, self.z().0 as f64) + 0.5
+        self.map(|v| v.0 as f64) + 0.5
     }
 
     fn position_in_chunk(&self) -> VoxelPosition {

@@ -4,7 +4,7 @@ use ggutil::prelude::Handle;
 #[derive(Clone, Debug)]
 pub struct Camera {
     target_node: Option<Handle>,
-    rotation: Quaternion<f32>,
+    rotation: Quaternion<f64>,
     camera_projection: CameraProjection,
 }
 
@@ -19,7 +19,7 @@ impl Camera {
     }
 
     /// Create a new perspective camera
-    pub fn new_perspective(target_node: Option<Handle>, fov: f32, near: f32, far: f32) -> Self {
+    pub fn new_perspective(target_node: Option<Handle>, fov: f64, near: f64, far: f64) -> Self {
         Self::new(
             target_node,
             CameraProjection::Perspective { fov, near, far },
@@ -30,8 +30,8 @@ impl Camera {
     pub fn new_orthographic(
         target_node: Option<Handle>,
         size: OrthographicSize,
-        near: f32,
-        far: f32,
+        near: f64,
+        far: f64,
     ) -> Self {
         Self::new(
             target_node,
@@ -50,23 +50,23 @@ impl Camera {
     }
 
     /// Set the camera rotation
-    pub fn set_rotation(&mut self, rotation: Quaternion<f32>) {
+    pub fn set_rotation(&mut self, rotation: Quaternion<f64>) {
         self.rotation = rotation;
     }
 
     /// Get the camera rotation
-    pub fn rotation(&self) -> Quaternion<f32> {
+    pub fn rotation(&self) -> Quaternion<f64> {
         self.rotation
     }
 
     /// Create a projection matrix for the camera
-    pub fn projection_matrix(&self, aspect_ratio: f32) -> Matrix4x4<f32> {
+    pub fn projection_matrix(&self, aspect_ratio: f64) -> Matrix4x4<f32> {
         match self.camera_projection.clone() {
             CameraProjection::Perspective { fov, near, far } => {
-                Matrix4x4::new_projection_perspective(fov, aspect_ratio, near, far)
+                Matrix4x4::new_projection_perspective(fov as f32, aspect_ratio as f32, near as f32, far as f32)
             }
             CameraProjection::Orthographic { size, near, far } => {
-                Matrix4x4::new_projection_orthographic(size.size(aspect_ratio), near, far)
+                Matrix4x4::new_projection_orthographic(size.size(aspect_ratio).map(|c| *c as f32), near as f32, far as f32)
             }
         }
     }
@@ -75,28 +75,28 @@ impl Camera {
 #[derive(Clone, Debug)]
 pub enum CameraProjection {
     Perspective {
-        fov: f32,
-        near: f32,
-        far: f32,
+        fov: f64,
+        near: f64,
+        far: f64,
     },
     Orthographic {
         size: OrthographicSize,
-        near: f32,
-        far: f32,
+        near: f64,
+        far: f64,
     },
 }
 
 #[derive(Clone, Copy, Debug)]
 pub enum OrthographicSize {
-    Fixed(Vector2<f32>),
-    FixedWidth(f32),
-    FixedHeight(f32),
+    Fixed(Vector2<f64>),
+    FixedWidth(f64),
+    FixedHeight(f64),
 }
 
 impl OrthographicSize {
     /// Return the width of the orthographic camera projection in world units
     /// Respects the aspect ratio of the render target.
-    pub fn width(&self, aspect_ratio: f32) -> f32 {
+    pub fn width(&self, aspect_ratio: f64) -> f64 {
         match self {
             Self::Fixed(size) => size.x(),
             Self::FixedWidth(width) => *width,
@@ -106,7 +106,7 @@ impl OrthographicSize {
 
     /// Returns the height of the orthographic camera projection in world units,
     /// Respects the aspect ratio of the render target.
-    pub fn height(&self, aspect_ratio: f32) -> f32 {
+    pub fn height(&self, aspect_ratio: f64) -> f64 {
         match self {
             Self::Fixed(size) => size.y(),
             Self::FixedWidth(width) => *width / aspect_ratio,
@@ -116,7 +116,7 @@ impl OrthographicSize {
 
     /// Return the size of the orthographic camera projection in world units
     /// Respects the aspect ratio of the render target.
-    pub fn size(&self, aspect_ratio: f32) -> Vector2<f32> {
+    pub fn size(&self, aspect_ratio: f64) -> Vector2<f64> {
         vector!(self.width(aspect_ratio), self.height(aspect_ratio))
     }
 }

@@ -59,9 +59,9 @@ pub fn on_render(
             (world.program().clone(), world)
         })
         .flat_map(|(program, world)| {
-            world
-                .chunk_meshes(gfx)
-                .map(move |(location, mesh)| (program.clone(), (location, mesh)))
+            world.chunk_meshes(gfx).filter_map(move |(location, mesh)| {
+                mesh.map(|mesh| (program.clone(), (location, mesh)))
+            })
         })
         .collect();
     for (program, (location, mesh)) in drawn_meshes {
@@ -72,7 +72,7 @@ pub fn on_render(
             1,
             Some(&render_camera),
             render_uniforms! [
-                mesh_position: location.position(),
+                mesh_position: location.position().convert_to::<f32>().unwrap(),
             ],
         );
     }
@@ -85,7 +85,7 @@ pub fn on_key(scene: &mut Scene, key: Key, action: Action, modifiers: Modifiers)
 }
 
 /// Scene mouse move event
-pub fn on_mouse_move(scene: &mut Scene, mouse_delta: Vector2<f32>) {
+pub fn on_mouse_move(scene: &mut Scene, mouse_delta: Vector2<f64>) {
     let node_handles = scene.get::<NodeHandles>("node handles").clone();
     scene_mouse_move(scene, &node_handles.player, mouse_delta)
 }
@@ -114,7 +114,7 @@ fn init_universe(scene: &mut Scene, gfx: &Gfx) -> NodeHandles {
     // Create the player node
     let player = scene
         .universe_mut()
-        .create_node(None, Player::new(vector!(0.0, 0.0, 2.0), f32::pi() * 0.5));
+        .create_node(None, Player::new(vector!(0.0, 0.0, 2.0), std::f64::consts::PI * 0.5));
 
     NodeHandles { world, player }
 }
@@ -150,7 +150,7 @@ fn scene_key_action(
 }
 
 /// Scene mouse move event
-fn scene_mouse_move(scene: &mut Scene, player_handle: &Handle, mouse_delta: Vector2<f32>) {
+fn scene_mouse_move(scene: &mut Scene, player_handle: &Handle, mouse_delta: Vector2<f64>) {
     player_code::player_mouse_motion(scene, player_handle, mouse_delta);
 }
 
