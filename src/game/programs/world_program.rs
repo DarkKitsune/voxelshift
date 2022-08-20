@@ -7,6 +7,7 @@ impl ProgramTemplate for WorldProgram {
     fn create_program(&self, gfx: &Gfx) -> Program {
         let builder = ProgramBuilder::<DebugVertex>::new()
             .with_uniforms(program_uniforms! {
+                mesh_scale: Vector3<f32>,
                 mesh_position: Vector3<f32>,
             })
             .with_camera()
@@ -34,7 +35,7 @@ fn vertex_main(inputs: &ModuleInputs, outputs: &mut ModuleOutputs, uniforms: &mu
     let projection = uniforms.camera_projection();
 
     // Calculate the world space position of the vertex
-    let world_space_position = position + uniforms.get("mesh_position");
+    let world_space_position = position * uniforms.get("mesh_scale") + uniforms.get("mesh_position");
 
     // Calculate the screen space position of the vertex
     let screen_space_position = projection * view * world_space_position.concat(1.0);

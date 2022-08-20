@@ -73,6 +73,7 @@ pub fn on_render(
             Some(&render_camera),
             render_uniforms! [
                 mesh_position: location.position().convert_to::<f32>().unwrap(),
+                mesh_scale: location.scale().convert_to::<f32>().unwrap(),
             ],
         );
     }

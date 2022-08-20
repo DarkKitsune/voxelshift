@@ -41,13 +41,13 @@ impl Player {
 
     /// Simulate a step of player movement.
     /// Returns physics information on what has changed during this step.
-    pub fn simulate_movement(&mut self, player_location: &Location, frame_delta: Duration) -> PhysicsStepInfo {
+    pub fn simulate_movement(&mut self, frame_delta: Duration) -> PhysicsStepInfo {
         let delta_f64 = frame_delta.as_secs_f64();
         // Get the player-local motion vector from the key state
         let local_motion_vector = self.key_state.to_local_motion_vector().unwrap_or_default();
         // Convert the player-local motion vector to a world-local acceleration vector
-        let acceleration_vector = player_location.delocalize_direction(local_motion_vector)
-            * player_location.delocalize_scale(vector!(
+        let acceleration_vector = self.location.delocalize_direction(local_motion_vector)
+            * self.location.delocalize_scale(vector!(
                 PLAYER_ACCELERATION,
                 PLAYER_ACCELERATION,
                 PLAYER_ACCELERATION
@@ -80,26 +80,18 @@ impl Player {
         self.camera.set_rotation(self.look.to_local_rotation());
     }
 
-    /// Get the player location.
-    pub fn location(&self) -> &Location {
-        &self.location
+    /// Get the position of the player in meters.
+    pub fn position(&self) -> Vector3<f64> {
+        self.location.position()
     }
 
-    pub fn world_position(&self) -> Vector3<f64> {
-        self.location.position().convert_to().unwrap()
-    }
-
-    pub fn set_world_position(&mut self, position: Vector3<f64>) {
+    /// Set the position of the player in meters.
+    pub fn set_position(&mut self, position: Vector3<f64>) {
         self.location.set_position(position);
     }
 
     pub fn voxel_position(&self) -> VoxelPosition {
-        let position = self.location.position();
-        vector!(
-            VoxelUnits::from(position.x().floor() as i64),
-            VoxelUnits::from(position.y().floor() as i64),
-            VoxelUnits::from(position.z().floor() as i64)
-        )
+        self.location.position().map(|v| VoxelUnits::from_meters(*v))
     }
 }
 

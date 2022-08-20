@@ -1,7 +1,7 @@
 use std::{
     collections::HashMap,
     convert::identity,
-    iter::{Step, Sum},
+    iter::{Step, Sum}, ops::{Div, Mul},
 };
 
 use auto_ops::impl_op_ex;
@@ -26,6 +26,7 @@ define_class! {
 }
 
 impl World {
+    /// Create a new world.
     pub fn new(
         gfx: &Gfx,
         world_program: Program,
@@ -44,10 +45,12 @@ impl World {
         }
     }
 
+    /// Remove chunks that have expired.
     pub fn remove_old_chunks(&mut self) {
         self.world_chunks.remove_old_chunks();
     }
 
+    /// Extend the life of all chunks in a given area.
     pub fn extend_life_in_view(&mut self, center_voxel: VoxelPosition, distance: VoxelUnits) {
         self.world_chunks
             .extend_life_in_view(center_voxel, distance, &self.world_generator);
@@ -64,11 +67,11 @@ impl World {
         &self.world_program
     }
 
-    pub fn set_on_ground(&self, world_position: Vector3<f64>) -> Vector3<f64> {
+    pub fn set_on_ground(&self, position: Vector3<f64>) -> Vector3<f64> {
         vector!(
-            world_position.x(),
-            self.world_generator.elevation_at(world_position.xz()),
-            world_position.z(),
+            position.x(),
+            voxels_to_meters(self.world_generator.elevation_at(meters_to_voxels(position).xz())),
+            position.z(),
         )
     }
 }
@@ -194,16 +197,13 @@ impl Chunks {
         gfx: &'a Gfx,
     ) -> impl Iterator<Item = (Location, Option<&'a Mesh<DebugVertex>>)> + 'a {
         self.chunks.iter_mut().map(|(chunk_position, chunk)| {
-            let chunk_voxel_position = chunk_position.to_voxel_position();
+            let chunk_meter_position = chunk_position.to_meters();
+            let voxel_to_meter = voxels_to_meters(1.0);
             (
                 Location::new(
-                    vector!(
-                        chunk_voxel_position.x().into_i64() as f64,
-                        chunk_voxel_position.y().into_i64() as f64,
-                        chunk_voxel_position.z().into_i64() as f64
-                    ),
+                    chunk_meter_position,
                     Quaternion::identity(),
-                    Vector::one(),
+                    Vector::from_scalar(voxel_to_meter),
                 ),
                 chunk.mesh(gfx),
             )
@@ -398,6 +398,14 @@ impl ChunkUnits {
     pub const fn into_i64(self) -> i64 {
         self.0
     }
+
+    pub fn to_meters(self) -> f64 {
+        chunks_to_meters(self.0 as f64)
+    }
+
+    pub fn from_meters(meters: f64) -> Self {
+        ChunkUnits(meters_to_chunks(meters).floor() as i64)
+    }
 }
 
 impl From<i64> for ChunkUnits {
@@ -529,11 +537,21 @@ pub type ChunkPosition = Vector3<ChunkUnits>;
 
 pub trait ChunkPositionExt {
     fn to_voxel_position(&self) -> VoxelPosition;
+    fn to_meters(&self) -> Vector3<f64>;
+    fn from_meters(v: Vector3<f64>) -> Self;
 }
 
 impl ChunkPositionExt for ChunkPosition {
     fn to_voxel_position(&self) -> VoxelPosition {
         vector!(self.x().into(), self.y().into(), self.z().into())
+    }
+
+    fn to_meters(&self) -> Vector3<f64> {
+        self.map(|x| x.to_meters())
+    }
+
+    fn from_meters(v: Vector3<f64>) -> Self {
+        v.map(|x| ChunkUnits::from_meters(*x))
     }
 }
 
@@ -548,6 +566,14 @@ impl VoxelUnits {
 
     pub const fn into_f64(self) -> f64 {
         self.into_i64() as f64
+    }
+
+    pub fn to_meters(self) -> f64 {
+        voxels_to_meters(self.into_f64())
+    }
+
+    pub fn from_meters(meters: f64) -> Self {
+        Self(meters_to_voxels(meters).floor() as i64)
     }
 }
 
@@ -673,6 +699,8 @@ pub trait VoxelPositionExt {
     fn to_chunk_position(&self) -> (ChunkPosition, VoxelPosition);
     fn center_position(&self) -> Vector3<f64>;
     fn position_in_chunk(&self) -> VoxelPosition;
+    fn to_meters(&self) -> Vector3<f64>;
+    fn from_meters(v: Vector3<f64>) -> Self;
 }
 
 impl VoxelPositionExt for VoxelPosition {
@@ -692,6 +720,14 @@ impl VoxelPositionExt for VoxelPosition {
 
     fn position_in_chunk(&self) -> VoxelPosition {
         self.to_chunk_position().1
+    }
+
+    fn to_meters(&self) -> Vector3<f64> {
+        self.map(|v| v.to_meters())
+    }
+
+    fn from_meters(v: Vector3<f64>) -> Self {
+        v.map(|v| VoxelUnits::from_meters(*v))
     }
 }
 
@@ -721,4 +757,28 @@ impl DynWorldGenerator {
     pub fn elevation_at(&self, xz: Vector2<f64>) -> f64 {
         self.world_generator.elevation_at(xz)
     }
+}
+
+pub fn voxels_to_meters<T: Div<f64, Output = T>>(position: T) -> T {
+    position / VOXELS_PER_METER.0 as f64
+}
+
+pub fn meters_to_voxels<T: Mul<f64, Output = T>>(position: T) -> T {
+    position * VOXELS_PER_METER.0 as f64
+}
+
+pub fn chunks_to_voxels<T: Mul<f64, Output = T>>(position: T) -> T {
+    position * VOXELS_PER_CHUNK.0 as f64
+}
+
+pub fn voxels_to_chunks<T: Div<f64, Output = T>>(position: T) -> T {
+    position / VOXELS_PER_CHUNK.0 as f64
+}
+
+pub fn chunks_to_meters<T: Div<f64, Output = T> + Mul<f64, Output = T>>(position: T) -> T {
+    voxels_to_meters(chunks_to_voxels(position))
+}
+
+pub fn meters_to_chunks<T: Div<f64, Output = T> + Mul<f64, Output = T>>(position: T) -> T {
+    voxels_to_chunks(meters_to_voxels(position))
 }
