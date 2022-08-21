@@ -1,7 +1,7 @@
 use crate::game::*;
 
 use super::{
-    player::Player, programs::world_program::WorldProgram, world::World,
+    player::Player, programs::world_program::WorldProgram, world::{World, voxels_to_meters},
     world_generator::BasicWorldGenerator,
 };
 
@@ -12,7 +12,7 @@ use super::{
 /// Build the scene
 pub fn build_scene() -> Scene {
     SceneBuilder::new()
-        .with_clear_color(Color::CYAN)
+        .with_clear_color(Color::CYAN.blended_with(Color::BLUE, 0.2).blended_with(Color::LIGHT_GRAY, 0.2))
         .on_init(on_init)
         .on_update(on_update)
         .on_render(on_render)
@@ -74,6 +74,8 @@ pub fn on_render(
             render_uniforms! [
                 mesh_position: location.position().convert_to::<f32>().unwrap(),
                 mesh_scale: location.scale().convert_to::<f32>().unwrap(),
+                screen_largest_dimension: window_size.x().max(window_size.y()) as f32,
+                voxel_meters: voxels_to_meters(1.0) as f32,
             ],
         );
     }

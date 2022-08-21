@@ -8,11 +8,12 @@ use auto_ops::impl_op_ex;
 use ggmath::init_array;
 use num::{One, Zero};
 
-use crate::game::{voxel::Voxel, *};
+use crate::{game::{voxel::Voxel, *}, vertex::WorldVertex};
 
-pub const VOXELS_PER_CHUNK: VoxelUnits = VoxelUnits(18);
-pub const VOXELS_PER_METER: VoxelUnits = VoxelUnits(2);
+pub const VOXELS_PER_CHUNK: VoxelUnits = VoxelUnits(25);
+pub const VOXELS_PER_METER: VoxelUnits = VoxelUnits(3);
 pub const WORLD_VIEW_DISTANCE_METERS: f64 = 50.0;
+pub const WORLD_VIEW_DISTANCE_VERTICAL_RATIO: f64 = 0.25;
 const CHUNK_LIFE_SECONDS: u64 = 9;
 const EXTEND_IN_VIEW_IS_SPHERICAL: bool = true;
 
@@ -53,13 +54,13 @@ impl World {
     /// Extend the life of all chunks in a given area. Units are in meters.
     pub fn extend_life_in_view(&mut self, center: Vector3<f64>, distance: f64, direction: Option<Vector3<f64>>) {
         self.world_chunks
-            .extend_life_in_view(center, distance, direction, &self.world_generator);
+            .extend_life_in_view(center, distance, WORLD_VIEW_DISTANCE_VERTICAL_RATIO, direction, &self.world_generator);
     }
 
     pub fn chunk_meshes<'a>(
         &'a mut self,
         gfx: &'a Gfx,
-    ) -> impl Iterator<Item = (Location, Option<&'a Mesh<DebugVertex>>)> + 'a {
+    ) -> impl Iterator<Item = (Location, Option<&'a Mesh<WorldVertex>>)> + 'a {
         self.world_chunks.meshes(gfx)
     }
 
@@ -125,15 +126,19 @@ impl Chunks {
         &mut self,
         center: Vector3<f64>,
         distance: f64,
+        vertical_ratio: f64,
         direction: Option<Vector3<f64>>,
         world_generator: &DynWorldGenerator,
     ) {
+        if vertical_ratio <= 0.0 {
+            return;
+        }
         let direction = direction.map(|d| d.normalized());
         let now = Instant::now();
         if EXTEND_IN_VIEW_IS_SPHERICAL {
             if let Some(direction) = direction {
                 let chunk_meters = chunks_to_meters(1.0);
-                for chunk_position in self.chunk_positions_in_sphere(center, distance) {
+                for chunk_position in self.chunk_positions_in_sphere(center, distance, vertical_ratio) {
                     let min = chunk_position.to_meters();
                     let corners = [
                         min,
@@ -155,7 +160,7 @@ impl Chunks {
                 }
             }
             else {
-                for chunk_position in self.chunk_positions_in_sphere(center, distance) {
+                for chunk_position in self.chunk_positions_in_sphere(center, distance, vertical_ratio) {
                     self.extend_life(chunk_position, now, world_generator);
                 }
             }
@@ -163,8 +168,8 @@ impl Chunks {
             if let Some(direction) = direction {
                 let chunk_meters = chunks_to_meters(1.0);
                 for chunk_position in self.chunk_positions_in_box(
-                    ChunkPosition::from_meters(center - distance),
-                    ChunkPosition::from_meters(center + distance),
+                    ChunkPosition::from_meters(center - distance * vertical_ratio),
+                    ChunkPosition::from_meters(center + distance * vertical_ratio),
                 ) {
                     let min = chunk_position.to_meters();
                     let corners = [
@@ -188,8 +193,8 @@ impl Chunks {
             }
             else {
                 for chunk_position in self.chunk_positions_in_box(
-                    ChunkPosition::from_meters(center - distance),
-                    ChunkPosition::from_meters(center + distance),
+                    ChunkPosition::from_meters(center - distance * vertical_ratio),
+                    ChunkPosition::from_meters(center + distance * vertical_ratio),
                 ) {
                     self.extend_life(chunk_position, now, world_generator);
                 }
@@ -218,13 +223,15 @@ impl Chunks {
         &self,
         center: Vector3<f64>,
         distance: f64,
+        vertical_ratio: f64,
     ) -> impl Iterator<Item = ChunkPosition> {
+        let inv_vertical_ratio = vector!(1.0, 1.0 / vertical_ratio, 1.0);
         let half_chunk = chunks_to_meters(0.5);
         let min = ChunkPosition::from_meters(center - distance);
         let max = ChunkPosition::from_meters(center + distance);
         self.chunk_positions_in_box(min, max)
             .filter_map(move |chunk_position| {
-                if (chunk_position.to_meters() + half_chunk - center).length_squared() <= distance * distance {
+                if ((chunk_position.to_meters() + half_chunk - center) * inv_vertical_ratio).length_squared() <= distance * distance {
                     Some(chunk_position)
                 } else {
                     None
@@ -247,15 +254,16 @@ impl Chunks {
         &self,
         center_chunk: Vector3<f64>,
         distance: f64,
+        vertical_ratio: f64,
     ) -> impl Iterator<Item = (ChunkPosition, Option<&Chunk>)> {
-        self.chunk_positions_in_sphere(center_chunk, distance)
+        self.chunk_positions_in_sphere(center_chunk, distance, vertical_ratio)
             .map(|chunk_position| (chunk_position, self.get(chunk_position)))
     }
 
     fn meshes<'a>(
         &'a mut self,
         gfx: &'a Gfx,
-    ) -> impl Iterator<Item = (Location, Option<&'a Mesh<DebugVertex>>)> + 'a {
+    ) -> impl Iterator<Item = (Location, Option<&'a Mesh<WorldVertex>>)> + 'a {
         self.chunks.iter_mut().map(|(chunk_position, chunk)| {
             let chunk_meter_position = chunk_position.to_meters();
             let voxel_to_meter = voxels_to_meters(1.0);
@@ -275,7 +283,7 @@ impl Chunks {
 pub struct Chunk {
     last_extended: Instant,
     voxels: Voxels,
-    mesh: Option<Mesh<DebugVertex>>,
+    mesh: Option<Mesh<WorldVertex>>,
 }
 
 impl Chunk {
@@ -299,7 +307,7 @@ impl Chunk {
         self.last_extended.elapsed().as_secs() < CHUNK_LIFE_SECONDS
     }
 
-    fn mesh(&mut self, gfx: &Gfx) -> Option<&Mesh<DebugVertex>> {
+    fn mesh(&mut self, gfx: &Gfx) -> Option<&Mesh<WorldVertex>> {
         if self.mesh.is_none() {
             self.generate_mesh(gfx);
         }
@@ -307,101 +315,48 @@ impl Chunk {
     }
 
     fn generate_mesh(&mut self, gfx: &Gfx) {
-        let mut proto_mesh = ProtoMesh::new(PrimitiveType::Triangles);
+        let mut proto_mesh = ProtoMesh::new(PrimitiveType::Points);
 
-        for z in VoxelUnits(0)..VOXELS_PER_CHUNK {
-            for y in VoxelUnits(0)..VOXELS_PER_CHUNK {
-                let mut mx_free = true;
-                let voxel_center = vector!(VoxelUnits(0), y, z).center_position();
-                let mut voxel_mesh_center = vector!(
-                    voxel_center.x() as f32,
-                    voxel_center.y() as f32,
-                    voxel_center.z() as f32
-                );
-                for x in VoxelUnits(0)..VOXELS_PER_CHUNK {
-                    let voxel_position = vector!(x, y, z);
-                    if let Some(voxel) = self.voxels.get(voxel_position) {
-                        let px_free = self.voxels.get(voxel_position + Vector::unit_x()).is_none();
-                        let my_free = self.voxels.get(voxel_position - Vector::unit_y()).is_none();
-                        let py_free = self.voxels.get(voxel_position + Vector::unit_y()).is_none();
-                        let mz_free = self.voxels.get(voxel_position - Vector::unit_z()).is_none();
-                        let pz_free = self.voxels.get(voxel_position + Vector::unit_z()).is_none();
-
-                        let color = voxel.color();
-                        proto_mesh.add_box(
-                            Orientation::from_position(voxel_mesh_center),
-                            Vector::one(),
-                            &BoxSides {
-                                x: BoxAxis {
-                                    minus: if mx_free {
-                                        Some(BoxSide {
-                                            color,
-                                            tex_coords: (Vector::zero(), Vector::zero()),
-                                        })
-                                    } else {
-                                        None
-                                    },
-                                    plus: if px_free {
-                                        Some(BoxSide {
-                                            color,
-                                            tex_coords: (Vector::zero(), Vector::zero()),
-                                        })
-                                    } else {
-                                        None
-                                    },
-                                },
-                                y: BoxAxis {
-                                    minus: if my_free {
-                                        Some(BoxSide {
-                                            color,
-                                            tex_coords: (Vector::zero(), Vector::zero()),
-                                        })
-                                    } else {
-                                        None
-                                    },
-                                    plus: if py_free {
-                                        Some(BoxSide {
-                                            color,
-                                            tex_coords: (Vector::zero(), Vector::zero()),
-                                        })
-                                    } else {
-                                        None
-                                    },
-                                },
-                                z: BoxAxis {
-                                    minus: if mz_free {
-                                        Some(BoxSide {
-                                            color,
-                                            tex_coords: (Vector::zero(), Vector::zero()),
-                                        })
-                                    } else {
-                                        None
-                                    },
-                                    plus: if pz_free {
-                                        Some(BoxSide {
-                                            color,
-                                            tex_coords: (Vector::zero(), Vector::zero()),
-                                        })
-                                    } else {
-                                        None
-                                    },
-                                },
-                            },
-                        );
-
-                        mx_free = false;
-                    } else {
-                        mx_free = true;
-                    }
-                    voxel_mesh_center = voxel_mesh_center + Vector::unit_x();
-                }
-            }
-        }
+        let voxels = &self.voxels;
+        let points = (VoxelUnits(0)..VOXELS_PER_CHUNK).flat_map(
+            |z| (VoxelUnits(0)..VOXELS_PER_CHUNK).flat_map(
+                move |y| {
+                    (VoxelUnits(0)..VOXELS_PER_CHUNK).filter_map(
+                        move |x| {
+                            let voxel_position = vector!(x, y, z);
+                            if let Some(voxel) = voxels.get(voxel_position) {
+                                if voxels.get(voxel_position - Vector::unit_z()).is_none()
+                                    || voxels.get(voxel_position + Vector::unit_z()).is_none()
+                                    || voxels.get(voxel_position - Vector::unit_y()).is_none()
+                                    || voxels.get(voxel_position + Vector::unit_y()).is_none()
+                                    || voxels.get(voxel_position - Vector::unit_x()).is_none()
+                                    || voxels.get(voxel_position + Vector::unit_x()).is_none()
+                                {
+                                    let vertex_position = voxel_position.map(|c| c.0 as f32) + 0.5;
+                                    let color = voxel.color();
+                                    Some(
+                                        ProtoVertex::new(vertex_position)
+                                            .with_color(color)
+                                    )
+                                }
+                                else {
+                                    None
+                                }
+                            } else {
+                                None
+                            }
+                        }
+                    )
+                },
+            ),
+        );
+        
+        proto_mesh.add_points(points);
 
         if proto_mesh.elements().is_empty() {
             self.mesh = None;
         } else {
-            self.mesh = Some(gfx.create_mesh::<DebugVertex>(&proto_mesh));
+            self.mesh = Some(gfx.create_mesh::<WorldVertex>(&proto_mesh));
         }
     }
 }

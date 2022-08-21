@@ -29,7 +29,7 @@ async fn main() {
 
     App::new()
         .with_title("Voxelshift")
-        .with_size(vector!(1280, 720))
+        .with_size(vector!(1800, 1000))
         .with_scene(scene)
         .run();
 }

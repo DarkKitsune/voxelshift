@@ -52,6 +52,7 @@ impl Gfx {
             gl::Enable(gl::CULL_FACE);
             gl::CullFace(gl::BACK);
             gl::FrontFace(gl::CCW);
+            gl::Enable(gl::VERTEX_PROGRAM_POINT_SIZE);
         }
 
         // Create Gfx object

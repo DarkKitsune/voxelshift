@@ -1,14 +1,16 @@
-use crate::game::*;
+use crate::{game::*, vertex::WorldVertex};
 
 #[derive(Clone, Copy)]
 pub struct WorldProgram;
 
 impl ProgramTemplate for WorldProgram {
     fn create_program(&self, gfx: &Gfx) -> Program {
-        let builder = ProgramBuilder::<DebugVertex>::new()
+        let builder = ProgramBuilder::<WorldVertex>::new()
             .with_uniforms(program_uniforms! {
                 mesh_position: Vector3<f32>,
                 mesh_scale: Vector3<f32>,
+                screen_largest_dimension: f32,
+                voxel_meters: f32,
             })
             .with_camera()
             .with_vertex_module(vertex_main)
@@ -27,7 +29,6 @@ impl ProgramTemplate for WorldProgram {
 fn vertex_main(inputs: &ModuleInputs, outputs: &mut ModuleOutputs, uniforms: &mut ModuleUniforms) {
     // Get the vertex attributes
     let position = inputs.get("position").expect("No input named position");
-    let normal = inputs.get("normal").expect("No input named normal");
     let color = inputs.get("color").expect("No input named color");
 
     // Get the camera view and projection matrices
@@ -38,13 +39,12 @@ fn vertex_main(inputs: &ModuleInputs, outputs: &mut ModuleOutputs, uniforms: &mu
     let world_space_position = position * uniforms.get("mesh_scale") + uniforms.get("mesh_position");
 
     // Calculate the screen space position of the vertex
-    let screen_space_position = projection * view * world_space_position.concat(1.0);
+    let mut screen_space_position = projection * view * world_space_position.concat(1.0);
 
     // The final vertex position is the screen space position
-    outputs.set_vertex(screen_space_position, 8.0);
+    outputs.set_vertex(screen_space_position.clone(), uniforms.get("screen_largest_dimension") * uniforms.get("voxel_meters") * 0.5 / screen_space_position.w());
 
-    // Pass the normal vector and color of the vertex to the fragment shader
-    outputs.set(Module::Fragment, "normal", normal);
+    // Pass the color of the vertex to the fragment shader
     outputs.set(Module::Fragment, "color", color);
 }
 
@@ -56,13 +56,11 @@ fn fragment_main(
     outputs: &mut ModuleOutputs,
     _uniforms: &mut ModuleUniforms,
 ) {
-    // Get the normal vector and color of the vertex
-    let normal = inputs.get("normal").expect("No input named normal");
-    let mut color = inputs.get("color").expect("No input named color");
+    // Get the color of the vertex
+    let color = inputs.get("color").expect("No input named color");
 
-    // The color of the fragment should be the color of the vertex, shaded with its normal vector
-    let brightness = normal.dot(vector!(-1.0, 1.0, -0.5).normalized());
-    let fragment_color = (color.clone().xyz() * brightness).concat(color.w());
+    // The color of the fragment should be the color of the vertex
+    let fragment_color = color;
 
     // Output the final color of the fragment
     outputs.set_fragment_color(fragment_color);

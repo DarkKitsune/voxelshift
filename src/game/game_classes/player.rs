@@ -4,7 +4,7 @@ use crate::game::*;
 
 use super::world::{VoxelPosition, VoxelUnits};
 
-const PLAYER_ACCELERATION: f64 = 70.0;
+const PLAYER_ACCELERATION: f64 = 55.0;
 const PLAYER_FRICTION: f64 = 10.0;
 const PLAYER_PITCH_LIMIT: f64 = std::f64::consts::PI * 0.3;
 const PLAYER_HEIGHT: f64 = 1.75;

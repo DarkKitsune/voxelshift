@@ -138,7 +138,7 @@ vertex_struct! {
         position: Vector3<f32> = |proto| proto.position(),
         normal: Vector3<f32> = |proto| proto.normal_or_panic(),
         color: Vector4<f32> = |proto| proto.color().unwrap_or(Color::WHITE).into(),
-        tex_coord: Vector2<f32> = |proto| proto.tex_coord_or_panic(),
+        tex_coord: Vector2<f32> = |proto| proto.tex_coord().unwrap_or(Vector2::zero()),
     }
 }
 
@@ -157,3 +157,25 @@ impl DebugVertex {
         }
     }
 }
+
+vertex_struct! {
+    /// Basic debug vertex with a position, normal, and color.
+    #[derive(Debug)]
+    pub struct WorldVertex {
+        position: Vector3<f32> = |proto| proto.position(),
+        color: Vector4<f32> = |proto| proto.color_or_panic().into(),
+    }
+}
+
+impl WorldVertex {
+    pub fn new(
+        position: Vector3<f32>,
+        color: Color,
+    ) -> Self {
+        Self {
+            position,
+            color: color.into(),
+        }
+    }
+}
+
