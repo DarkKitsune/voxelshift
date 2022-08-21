@@ -102,14 +102,14 @@ fn init_resources(scene: &mut Scene, gfx: &Gfx) {
 }
 
 /// Initialize the game universe
-fn init_universe(scene: &mut Scene, gfx: &Gfx) -> NodeHandles {
+fn init_universe(scene: &mut Scene, _gfx: &Gfx) -> NodeHandles {
     // Get the world program from the scene
     let world_program = scene.get_program("world program");
 
     // Create the world node
     let world = scene.universe_mut().create_node(
         None,
-        World::new(gfx, world_program, BasicWorldGenerator::new(12345)),
+        World::new(world_program, BasicWorldGenerator::new(12345)),
     );
 
     // Create the player node

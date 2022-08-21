@@ -131,7 +131,7 @@ impl Gfx {
         let elements = proto_mesh.elements();
         let vertex_buffer = self.create_buffer(BufferType::VERTEX, BufferData::Data(&vertices));
         let element_buffer = self.create_buffer(BufferType::ELEMENT, BufferData::Data(elements));
-        Mesh::new(&vertex_buffer, &element_buffer, elements.len())
+        Mesh::new(&vertex_buffer, &element_buffer, elements.len(), proto_mesh.primitive_type())
     }
 
     /// Sets the target framebuffer for rendering operations
@@ -216,7 +216,7 @@ impl Gfx {
             }
             // Draw the elements
             gl::DrawElementsInstanced(
-                gl::TRIANGLES,
+                mesh.primitive_type().to_gl_enum(),
                 mesh.element_count() as GLsizei,
                 gl::UNSIGNED_INT,
                 std::ptr::null(),
@@ -760,6 +760,7 @@ gfx_object_struct! {
         _vertex_buffer: Buffer<V>,
         _element_buffer: Buffer<u32>,
         element_count: usize,
+        primitive_type: PrimitiveType,
     }
 
     #[derive(Debug)]
@@ -777,7 +778,10 @@ gfx_object_struct! {
 }
 
 impl<V: Vertex> Mesh<V> {
-    fn new(vertex_buffer: &Buffer<V>, element_buffer: &Buffer<u32>, element_count: usize) -> Self {
+    fn new(vertex_buffer: &Buffer<V>, element_buffer: &Buffer<u32>, element_count: usize, primitive_type: PrimitiveType) -> Self {
+        #[cfg(debug_assertions)]
+        primitive_type.check_element_count(element_count);
+        
         if element_count == 0 {
             panic!("Cannot create a mesh with 0 elements");
         }
@@ -819,12 +823,50 @@ impl<V: Vertex> Mesh<V> {
                 _vertex_buffer: vertex_buffer.clone(),
                 _element_buffer: element_buffer.clone(),
                 element_count,
+                primitive_type,
             })),
         }
     }
 
     pub fn element_count(&self) -> usize {
         self.base().element_count
+    }
+
+    pub fn primitive_type(&self) -> PrimitiveType {
+        self.base().primitive_type
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Hash)]
+pub enum PrimitiveType {
+    Triangles,
+    Lines,
+    Points,
+}
+
+impl PrimitiveType {
+    pub fn check_element_count(self, element_count: usize) {
+        match self {
+            PrimitiveType::Triangles => {
+                if element_count % 3 != 0 {
+                    panic!("Cannot create a triangle mesh with {} elements", element_count);
+                }
+            }
+            PrimitiveType::Lines => {
+                if element_count % 2 != 0 {
+                    panic!("Cannot create a point mesh with {} elements", element_count);
+                }
+            }
+            PrimitiveType::Points => {}
+        }
+    }
+
+    pub fn to_gl_enum(self) -> GLenum {
+        match self {
+            PrimitiveType::Triangles => gl::TRIANGLES,
+            PrimitiveType::Lines => gl::LINES,
+            PrimitiveType::Points => gl::POINTS,
+        }
     }
 }
 

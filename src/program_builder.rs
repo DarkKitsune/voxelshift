@@ -199,7 +199,7 @@ impl<V: Vertex> VertexModuleBuilder<V> {
             .as_ref()
             .expect("Vertex module must have its outputs set");
         let source = outputs.iter().fold(source, |mut acc, output| {
-            if output.next_stage_input.name != "gl_Position" {
+            if output.next_stage_input.name != "gl_Position" && output.next_stage_input.name != "gl_PointSize" {
                 acc.push_str("layout (location = ");
                 acc.push_str(&output.next_stage_input.location.to_string());
                 acc.push_str(") out ");
@@ -288,7 +288,7 @@ impl FragmentModuleBuilder {
             .inputs_from_vertex
             .iter()
             .fold(source, |mut acc, input| {
-                if input.name != "gl_Position" {
+                if input.name != "gl_Position" && input.name != "gl_PointSize" {
                     acc.push_str("layout (location = ");
                     acc.push_str(&input.location.to_string());
                     acc.push_str(") in ");
@@ -474,6 +474,8 @@ impl ModuleOutputs {
             next_stage_input: ModuleInput {
                 location: if name == "gl_Position" {
                     0
+                } else if name == "gl_PointSize" {
+                    1
                 } else {
                     self.next_location
                 },
@@ -483,8 +485,8 @@ impl ModuleOutputs {
             value: Arc::new(value),
         };
 
-        // Don't increment location if it's the gl_Position built-in output
-        if name != "gl_Position" {
+        // Don't increment location if it's a built-in output
+        if name != "gl_Position" && name != "gl_PointSize" {
             self.next_location += value_type.locations_consumed();
         }
 
@@ -492,8 +494,9 @@ impl ModuleOutputs {
         self.outputs.insert(name.to_string(), output);
     }
 
-    pub fn set_vertex_position(&mut self, value: impl Into<expr::Expression>) {
-        self.set(Module::Fragment, "gl_Position", value);
+    pub fn set_vertex(&mut self, position: impl Into<expr::Expression>, point_size: impl Into<expr::Expression>) {
+        self.set(Module::Fragment, "gl_Position", position);
+        self.set(Module::Fragment, "gl_PointSize", point_size);
     }
 
     pub fn set_fragment_color(&mut self, value: impl Into<expr::Expression>) {
@@ -523,6 +526,16 @@ impl ModuleOutputs {
                             != expr::ExpressionType::Vector4(expr::Scalar::F32)
                         {
                             panic!("Vertex position output must be a vec4");
+                        }
+                    }
+                    else if name == "gl_PointSize" {
+                        if self.module != Module::Vertex {
+                            panic!("Vertex point size output can only be set by the vertex module");
+                        }
+                        if output.value.expression_type()
+                            != expr::ExpressionType::Scalar(expr::Scalar::F32)
+                        {
+                            panic!("Vertex position output must be a float");
                         }
                     }
                 }
@@ -679,7 +692,7 @@ impl Module {
 fn write_main(mut source: String, outputs: &ModuleOutputs, stage: Module) -> String {
     // Check that required outputs are present
     let required_outputs = match stage {
-        Module::Vertex => vec!["gl_Position"],
+        Module::Vertex => vec!["gl_Position", "gl_PointSize"],
         Module::Fragment => vec!["out_frag_color"],
     };
 

@@ -4,24 +4,28 @@ use ggutil::prelude::Handle;
 #[derive(Clone, Debug)]
 pub struct Camera {
     target_node: Option<Handle>,
+    translation: Vector3<f64>,
     rotation: Quaternion<f64>,
     camera_projection: CameraProjection,
 }
 
 impl Camera {
     /// Create a new camera
-    fn new(target_node: Option<Handle>, camera_projection: CameraProjection) -> Self {
+    fn new(target_node: Option<Handle>, translation: Vector3<f64>, rotation: Quaternion<f64>, camera_projection: CameraProjection) -> Self {
         Self {
             target_node,
-            rotation: Quaternion::identity(),
+            translation,
+            rotation,
             camera_projection,
         }
     }
 
     /// Create a new perspective camera
-    pub fn new_perspective(target_node: Option<Handle>, fov: f64, near: f64, far: f64) -> Self {
+    pub fn new_perspective(target_node: Option<Handle>, translation: Vector3<f64>, rotation: Quaternion<f64>, fov: f64, near: f64, far: f64) -> Self {
         Self::new(
             target_node,
+            translation,
+            rotation,
             CameraProjection::Perspective { fov, near, far },
         )
     }
@@ -29,12 +33,16 @@ impl Camera {
     /// Create a new orthographic camera
     pub fn new_orthographic(
         target_node: Option<Handle>,
+        translation: Vector3<f64>,
+        rotation: Quaternion<f64>,
         size: OrthographicSize,
         near: f64,
         far: f64,
     ) -> Self {
         Self::new(
             target_node,
+            translation,
+            rotation,
             CameraProjection::Orthographic { size, near, far },
         )
     }
@@ -57,6 +65,11 @@ impl Camera {
     /// Get the camera rotation
     pub fn rotation(&self) -> Quaternion<f64> {
         self.rotation
+    }
+
+    /// Get the camera translation
+    pub fn translation(&self) -> Vector3<f64> {
+        self.translation
     }
 
     /// Create a projection matrix for the camera

@@ -10,9 +10,10 @@ use num::{One, Zero};
 
 use crate::game::{voxel::Voxel, *};
 
-pub const VOXELS_PER_CHUNK: VoxelUnits = VoxelUnits(20);
-pub const VOXELS_PER_METER: VoxelUnits = VoxelUnits(3);
-const CHUNK_LIFE_SECONDS: u64 = 5;
+pub const VOXELS_PER_CHUNK: VoxelUnits = VoxelUnits(18);
+pub const VOXELS_PER_METER: VoxelUnits = VoxelUnits(2);
+pub const WORLD_VIEW_DISTANCE_METERS: f64 = 50.0;
+const CHUNK_LIFE_SECONDS: u64 = 9;
 const EXTEND_IN_VIEW_IS_SPHERICAL: bool = true;
 
 define_class! {
@@ -28,7 +29,6 @@ define_class! {
 impl World {
     /// Create a new world.
     pub fn new(
-        gfx: &Gfx,
         world_program: Program,
         world_generator: impl WorldGenerator + 'static,
     ) -> Self {
@@ -50,10 +50,10 @@ impl World {
         self.world_chunks.remove_old_chunks();
     }
 
-    /// Extend the life of all chunks in a given area.
-    pub fn extend_life_in_view(&mut self, center_voxel: VoxelPosition, distance: VoxelUnits) {
+    /// Extend the life of all chunks in a given area. Units are in meters.
+    pub fn extend_life_in_view(&mut self, center: Vector3<f64>, distance: f64, direction: Option<Vector3<f64>>) {
         self.world_chunks
-            .extend_life_in_view(center_voxel, distance, &self.world_generator);
+            .extend_life_in_view(center, distance, direction, &self.world_generator);
     }
 
     pub fn chunk_meshes<'a>(
@@ -120,24 +120,79 @@ impl Chunks {
         }
     }
 
+    /// Extend the lifetime of chunks in a given area. Units in meters.
     fn extend_life_in_view(
         &mut self,
-        center_voxel: VoxelPosition,
-        distance: VoxelUnits,
+        center: Vector3<f64>,
+        distance: f64,
+        direction: Option<Vector3<f64>>,
         world_generator: &DynWorldGenerator,
     ) {
-        let center_chunk = center_voxel.to_chunk_position().0;
+        let direction = direction.map(|d| d.normalized());
         let now = Instant::now();
         if EXTEND_IN_VIEW_IS_SPHERICAL {
-            for chunk_position in self.chunk_positions_in_sphere(center_chunk, distance.into()) {
-                self.extend_life(chunk_position, now, world_generator);
+            if let Some(direction) = direction {
+                let chunk_meters = chunks_to_meters(1.0);
+                for chunk_position in self.chunk_positions_in_sphere(center, distance) {
+                    let min = chunk_position.to_meters();
+                    let corners = [
+                        min,
+                        min + vector!(chunk_meters, 0.0, 0.0),
+                        min + vector!(0.0, chunk_meters, 0.0),
+                        min + vector!(chunk_meters, chunk_meters, 0.0),
+                        min + vector!(0.0, 0.0, chunk_meters),
+                        min + vector!(chunk_meters, 0.0, chunk_meters),
+                        min + vector!(0.0, chunk_meters, chunk_meters),
+                        min + chunk_meters,
+                    ];
+                    
+                    if corners
+                        .into_iter()
+                        .any(|corner| (corner - center).normalized().dot(&direction) > 0.0)
+                    {
+                        self.extend_life(chunk_position, now, world_generator);
+                    }
+                }
+            }
+            else {
+                for chunk_position in self.chunk_positions_in_sphere(center, distance) {
+                    self.extend_life(chunk_position, now, world_generator);
+                }
             }
         } else {
-            for chunk_position in self.chunk_positions_in_box(
-                (center_voxel - distance).to_chunk_position().0,
-                (center_voxel + distance).to_chunk_position().0,
-            ) {
-                self.extend_life(chunk_position, now, world_generator);
+            if let Some(direction) = direction {
+                let chunk_meters = chunks_to_meters(1.0);
+                for chunk_position in self.chunk_positions_in_box(
+                    ChunkPosition::from_meters(center - distance),
+                    ChunkPosition::from_meters(center + distance),
+                ) {
+                    let min = chunk_position.to_meters();
+                    let corners = [
+                        min,
+                        min + vector!(chunk_meters, 0.0, 0.0),
+                        min + vector!(0.0, chunk_meters, 0.0),
+                        min + vector!(chunk_meters, chunk_meters, 0.0),
+                        min + vector!(0.0, 0.0, chunk_meters),
+                        min + vector!(chunk_meters, 0.0, chunk_meters),
+                        min + vector!(0.0, chunk_meters, chunk_meters),
+                        min + chunk_meters,
+                    ];
+                    
+                    if corners
+                        .into_iter()
+                        .any(|corner| (corner - center).normalized().dot(&direction) > 0.0)
+                    {
+                        self.extend_life(chunk_position, now, world_generator);
+                    }
+                }
+            }
+            else {
+                for chunk_position in self.chunk_positions_in_box(
+                    ChunkPosition::from_meters(center - distance),
+                    ChunkPosition::from_meters(center + distance),
+                ) {
+                    self.extend_life(chunk_position, now, world_generator);
+                }
             }
         }
     }
@@ -157,16 +212,19 @@ impl Chunks {
         })
     }
 
+    /// Get the positions of all chunks found in a spherical area.
+    /// Units are in meters.
     fn chunk_positions_in_sphere(
         &self,
-        center_chunk: ChunkPosition,
-        distance: ChunkUnits,
+        center: Vector3<f64>,
+        distance: f64,
     ) -> impl Iterator<Item = ChunkPosition> {
-        let min = center_chunk - vector!(distance, distance, distance);
-        let max = center_chunk + vector!(distance, distance, distance);
+        let half_chunk = chunks_to_meters(0.5);
+        let min = ChunkPosition::from_meters(center - distance);
+        let max = ChunkPosition::from_meters(center + distance);
         self.chunk_positions_in_box(min, max)
             .filter_map(move |chunk_position| {
-                if (chunk_position - center_chunk).length_squared() <= distance * distance {
+                if (chunk_position.to_meters() + half_chunk - center).length_squared() <= distance * distance {
                     Some(chunk_position)
                 } else {
                     None
@@ -183,10 +241,12 @@ impl Chunks {
             .map(|chunk_position| (chunk_position, self.get(chunk_position)))
     }
 
+    /// Get all of the chunks found in a spherical area.
+    /// Units are in meters.
     fn chunks_in_sphere(
         &self,
-        center_chunk: ChunkPosition,
-        distance: ChunkUnits,
+        center_chunk: Vector3<f64>,
+        distance: f64,
     ) -> impl Iterator<Item = (ChunkPosition, Option<&Chunk>)> {
         self.chunk_positions_in_sphere(center_chunk, distance)
             .map(|chunk_position| (chunk_position, self.get(chunk_position)))
@@ -247,7 +307,7 @@ impl Chunk {
     }
 
     fn generate_mesh(&mut self, gfx: &Gfx) {
-        let mut proto_mesh = ProtoMesh::new();
+        let mut proto_mesh = ProtoMesh::new(PrimitiveType::Triangles);
 
         for z in VoxelUnits(0)..VOXELS_PER_CHUNK {
             for y in VoxelUnits(0)..VOXELS_PER_CHUNK {

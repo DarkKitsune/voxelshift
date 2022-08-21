@@ -105,7 +105,7 @@ impl Location {
 
     /// Returns the location's rotation matrix.
     pub fn rotation_matrix(&self) -> Matrix3x3<f64> {
-        Matrix3x3::from(self.rotation)
+        self.rotation.to_matrix()
     }
 
     /// Returns the location's transformation matrix.
@@ -118,21 +118,21 @@ impl Location {
     /// Delocalizes a direction that is local to this location,
     /// making it local to the parent of the owner of this location instead.
     pub fn delocalize_direction(&self, direction: Vector3<f64>) -> Vector3<f64> {
-        Matrix3x3::from(self.rotation) * direction
+        direction.rotated_by(&self.rotation)
     }
 
     pub fn localize_direction(&self, direction: Vector3<f64>) -> Vector3<f64> {
-        Matrix3x3::from(self.rotation.inverted()) * direction
+        direction.rotated_by(&self.rotation.inverted())
     }
 
     /// Delocalizes a position that is local to this location,
     /// making it local to the parent of the owner of this location instead.
     pub fn delocalize_position(&self, position: Vector3<f64>) -> Vector3<f64> {
-        Matrix3x3::from(self.rotation) * position + self.position
+        position.rotated_by(&self.rotation) + self.position
     }
 
     pub fn localize_position(&self, position: Vector3<f64>) -> Vector3<f64> {
-        Matrix3x3::from(self.rotation.inverted()) * (position - self.position)
+        (position - self.position).rotated_by(&self.rotation.inverted())
     }
 
     /// Delocalizes a rotation that is local to this location,

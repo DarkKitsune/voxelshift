@@ -4,9 +4,11 @@ use crate::game::*;
 
 use super::world::{VoxelPosition, VoxelUnits};
 
-const PLAYER_ACCELERATION: f64 = 30.0;
+const PLAYER_ACCELERATION: f64 = 70.0;
 const PLAYER_FRICTION: f64 = 10.0;
 const PLAYER_PITCH_LIMIT: f64 = std::f64::consts::PI * 0.3;
+const PLAYER_HEIGHT: f64 = 1.75;
+const PLAYER_EYE_HEIGHT: f64 = PLAYER_HEIGHT * 0.5 - 0.06;
 
 define_class! {
     pub class Player {
@@ -23,7 +25,7 @@ impl Player {
     pub fn new(position: Vector3<f64>, fov: f64) -> Self {
         Self {
             location: Location::new(position, Quaternion::identity(), Vector3::one()),
-            camera: Camera::new_perspective(None, fov, 0.05, 100.0),
+            camera: Camera::new_perspective(None, vector!(0.0, PLAYER_EYE_HEIGHT, 0.0), Quaternion::identity(), fov, 0.05, 100.0),
             physics: Physics {
                 mass: 88.7,
                 velocity: Vector3::zero(),
@@ -93,6 +95,18 @@ impl Player {
     pub fn voxel_position(&self) -> VoxelPosition {
         self.location.position().map(|v| VoxelUnits::from_meters(*v))
     }
+
+    pub fn local_eye_position(&self) -> Vector3<f64> {
+        self.camera.translation()
+    }
+
+    pub fn height(&self) -> f64 {
+        PLAYER_HEIGHT
+    }
+
+    pub fn look_direction(&self) -> Vector3<f64> {
+        -Vector3::unit_z().rotated_by(&self.location.rotation())
+    }
 }
 
 /// Tracks the state of the player's keyboard inputs.
@@ -126,9 +140,9 @@ impl PlayerKeyState {
 /// Component for handling the player's ability to look around.
 pub struct Look {
     /// The player's current pitch angle.
-    pub pitch: f64,
+    pitch: f64,
     /// The player's current yaw angle.
-    pub yaw: f64,
+    yaw: f64,
 }
 
 impl Look {

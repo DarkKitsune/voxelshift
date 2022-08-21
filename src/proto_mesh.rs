@@ -5,19 +5,21 @@ use ggmath::{
     vector_alias::{Vector2, Vector3},
 };
 
-use crate::{colors::Color, vertex::Vertex};
+use crate::{colors::Color, vertex::Vertex, game::PrimitiveType};
 
 /// A prototype mesh
 #[derive(Debug, Clone)]
 pub struct ProtoMesh {
+    primitive_type: PrimitiveType,
     vertices: Vec<ProtoVertex>,
     elements: Vec<u32>,
 }
 
 impl ProtoMesh {
     /// Create a new empty `ProtoMesh`
-    pub fn new() -> ProtoMesh {
+    pub fn new(primitive_type: PrimitiveType) -> ProtoMesh {
         ProtoMesh {
+            primitive_type,
             vertices: Vec::new(),
             elements: Vec::new(),
         }
@@ -25,6 +27,9 @@ impl ProtoMesh {
 
     /// Concat a `ProtoMesh` onto this one
     pub fn concat(&mut self, other: &ProtoMesh) {
+        if self.primitive_type() != other.primitive_type() {
+            panic!("Cannot concat ProtoMeshs with different primitive types");
+        }
         let offset = self.vertices.len() as u32;
         self.vertices.extend_from_slice(&other.vertices);
         self.elements
@@ -37,10 +42,17 @@ impl ProtoMesh {
         vertices: impl IntoIterator<Item = ProtoVertex>,
         elements: impl IntoIterator<Item = u32>,
     ) {
+        let old_length = self.elements().len();
         let offset = self.vertices.len() as u32;
         self.vertices.extend(vertices);
         self.elements
             .extend(elements.into_iter().map(|i| i + offset as u32));
+        self.primitive_type().check_element_count(self.elements().len() - old_length);
+    }
+
+    /// Get the primitive type of this `ProtoMesh`
+    pub fn primitive_type(&self) -> PrimitiveType {
+        self.primitive_type
     }
 
     /// Gets the vertices of this `ProtoMesh`
@@ -66,6 +78,10 @@ impl ProtoMesh {
         color: Color,
         tex_coords: (Vector2<f32>, Vector2<f32>),
     ) {
+        if self.primitive_type() != PrimitiveType::Triangles {
+            panic!("Can only add rectangles to triangle meshes");
+        }
+        
         let center = orientation.center();
         let half_size = size * 0.5;
         let axes = orientation
@@ -113,6 +129,10 @@ impl ProtoMesh {
     }
 
     pub fn add_box(&mut self, orientation: Orientation, size: Vector3<f32>, sides: &BoxSides) {
+        if self.primitive_type() != PrimitiveType::Triangles {
+            panic!("Can only add rectangles to triangle meshes");
+        }
+
         let center = orientation.center();
         let half_size = size * 0.5;
         let axes = orientation
@@ -242,6 +262,15 @@ impl ProtoMesh {
                 side.tex_coords,
             );
         }
+    }
+
+    pub fn add_points(&mut self, points: impl IntoIterator<Item = ProtoVertex>,) {
+        if self.primitive_type() != PrimitiveType::Points {
+            panic!("Can only add points to point meshes");
+        }
+        let element_start = self.vertices.len() as u32;
+        self.vertices.extend(points);
+        self.elements.extend(element_start..self.vertices.len() as u32);
     }
 }
 

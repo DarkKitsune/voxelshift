@@ -7,8 +7,8 @@ impl ProgramTemplate for WorldProgram {
     fn create_program(&self, gfx: &Gfx) -> Program {
         let builder = ProgramBuilder::<DebugVertex>::new()
             .with_uniforms(program_uniforms! {
-                mesh_scale: Vector3<f32>,
                 mesh_position: Vector3<f32>,
+                mesh_scale: Vector3<f32>,
             })
             .with_camera()
             .with_vertex_module(vertex_main)
@@ -41,7 +41,7 @@ fn vertex_main(inputs: &ModuleInputs, outputs: &mut ModuleOutputs, uniforms: &mu
     let screen_space_position = projection * view * world_space_position.concat(1.0);
 
     // The final vertex position is the screen space position
-    outputs.set_vertex_position(screen_space_position);
+    outputs.set_vertex(screen_space_position, 8.0);
 
     // Pass the normal vector and color of the vertex to the fragment shader
     outputs.set(Module::Fragment, "normal", normal);

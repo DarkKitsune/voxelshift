@@ -164,10 +164,11 @@ impl Scene {
         {
             let absolute_camera_location = self.get_absolute_location(camera_node.handle().clone());
             let absolute_camera_rotation_matrix =
-                Matrix3x3::from(absolute_camera_location.delocalize_rotation(camera.rotation()));
+                absolute_camera_location.delocalize_rotation(camera.rotation()).to_matrix();
+            let absolute_camera_position =
+                absolute_camera_location.delocalize_position(camera.translation());
 
             // Set the camera
-            let absolute_camera_position = absolute_camera_location.position();
             let absolute_camera_target = if let Some(camera_target_handle) = camera.target() {
                 Some(self.get_absolute_location(camera_target_handle.clone()))
             } else {

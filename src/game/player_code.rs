@@ -2,10 +2,8 @@ use crate::game::*;
 
 use super::{
     player::Player,
-    world::{DynWorldGenerator, VoxelUnits, World, VOXELS_PER_METER},
+    world::{DynWorldGenerator, VoxelUnits, World, VOXELS_PER_METER, WORLD_VIEW_DISTANCE_METERS},
 };
-
-const PLAYER_EYE_HEIGHT: f64 = 1.7;
 
 pub fn update_player(
     scene: &mut Scene,
@@ -13,7 +11,7 @@ pub fn update_player(
     world_handle: &Handle,
     frame_delta: Duration,
 ) {
-    let (player_physics_step, player_position, player_voxel_position) = {
+    let (player_physics_step, player_position, player_height, player_look_direction) = {
         let player_node = scene
             .universe_mut()
             .node_mut(player_handle)
@@ -27,7 +25,8 @@ pub fn update_player(
         (
             player_physics_step,
             player_class.position(),
-            player_class.voxel_position(),
+            player_class.height(),
+            player_class.look_direction(),
         )
     };
     // Set player on ground
@@ -47,7 +46,7 @@ pub fn update_player(
             .class_as_mut::<Player>()
             .expect("Player node has no Player component");
         player_class
-            .set_position(ground_position + vector!(0.0, PLAYER_EYE_HEIGHT, 0.0));
+            .set_position(ground_position + vector!(0.0, player_height * 0.5, 0.0));
     }
     // Extend and remove chunks
     let world = scene
@@ -58,7 +57,7 @@ pub fn update_player(
         .class_as_mut::<World>()
         .expect("World node is not a World");
     world_class.remove_old_chunks();
-    world_class.extend_life_in_view(player_voxel_position, VoxelUnits::from(20i64))
+    world_class.extend_life_in_view(player_position, WORLD_VIEW_DISTANCE_METERS, Some(player_look_direction));
 }
 
 pub fn player_key_action(
