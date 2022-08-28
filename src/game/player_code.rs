@@ -2,7 +2,7 @@ use crate::game::*;
 
 use super::{
     player::Player,
-    world::{DynWorldGenerator, VoxelUnits, World, VOXELS_PER_METER, WORLD_VIEW_DISTANCE_METERS},
+    world::{VoxelUnits, World, VOXELS_PER_METER, WORLD_VIEW_DISTANCE_METERS},
 };
 
 pub fn update_player(

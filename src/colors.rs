@@ -42,6 +42,26 @@ impl Color {
         }
     }
 
+    /// Gets the red component of the color.
+    pub const fn r(&self) -> f32 {
+        self.vector.x()
+    }
+
+    /// Gets the green component of the color.
+    pub const fn g(&self) -> f32 {
+        self.vector.y()
+    }
+
+    /// Gets the blue component of the color.
+    pub const fn b(&self) -> f32 {
+        self.vector.z()
+    }
+
+    /// Gets the alpha component of the color.
+    pub const fn a(&self) -> f32 {
+        self.vector.w()
+    }
+
     /// Makes a copy of the color with the given brightness.
     pub const fn with_brightness(self, brightness: f32) -> Self {
         Color {
@@ -164,6 +184,11 @@ impl Color {
                 self.vector.w() * inv_alpha + other.vector.w() * alpha,
             ),
         }
+    }
+
+    /// Gets whether the color is transparent (alpha less than 1.0).
+    pub const fn is_transparent(&self) -> bool {
+        self.a() < 1.0
     }
 }
 

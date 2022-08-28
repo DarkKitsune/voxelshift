@@ -1,8 +1,7 @@
 use crate::game::*;
 
 use super::{
-    player::Player, programs::world_program::WorldProgram, world::{World, voxels_to_meters},
-    world_generator::BasicWorldGenerator,
+    player::Player, programs::world_program::WorldProgram, world::{World, voxels_to_meters}, gen_schema::{GenSchema, GenInstruction},
 };
 
 // ============================================================================
@@ -49,8 +48,15 @@ pub fn on_render(
     window_size: Vector2<u32>,
     frame_delta: Duration,
 ) {
+    
     // Render world chunk meshes
-    let drawn_meshes: Vec<_> = scene
+    
+    // Chunk generation timing stuff
+    let mut mesh_gen_time_total = 0.0;
+    let mut mesh_gen_count_total = 0;
+
+    let mut drawn_meshes = Vec::new();
+    for (program, world) in scene
         .universe_mut()
         .nodes_mut()
         .with_class::<World>()
@@ -58,17 +64,24 @@ pub fn on_render(
             let world = node.class_as_mut::<World>().unwrap();
             (world.program().clone(), world)
         })
-        .flat_map(|(program, world)| {
-            world.chunk_meshes(gfx).filter_map(move |(location, mesh)| {
-                mesh.map(|mesh| (program.clone(), (location, mesh)))
-            })
-        })
-        .collect();
+    {
+        let (this_mesh_gen_time_total, this_mesh_gen_count) = world.create_chunk_meshes(gfx);
+        mesh_gen_time_total += this_mesh_gen_time_total;
+        mesh_gen_count_total += this_mesh_gen_count;
+        world.using_chunk_meshes(gfx, |meshes|
+            for (location, mesh) in meshes {
+                if let Some(mesh) = mesh {
+                    drawn_meshes.push((program.clone(), (location.clone(), (*mesh).clone())));
+                }
+            }
+        )
+    }
+
     for (program, (location, mesh)) in drawn_meshes {
         gfx.render_mesh(
             framebuffer,
             &program,
-            mesh,
+            &mesh,
             1,
             Some(&render_camera),
             render_uniforms! [
@@ -77,6 +90,14 @@ pub fn on_render(
                 screen_largest_dimension: window_size.x().max(window_size.y()) as f32,
                 voxel_meters: voxels_to_meters(1.0) as f32,
             ],
+        );
+    }
+
+    // Chunk generation timing stuff
+    if mesh_gen_count_total > 0 {
+        println!(
+            "Average chunk mesh generation time: {:.3} ms",
+            mesh_gen_time_total * 1000.0 / mesh_gen_count_total as f64
         );
     }
 }
@@ -108,10 +129,16 @@ fn init_universe(scene: &mut Scene, _gfx: &Gfx) -> NodeHandles {
     // Get the world program from the scene
     let world_program = scene.get_program("world program");
 
+    // Create the world generation schema
+    let gen_schema = GenSchema::new([
+        GenInstruction::Terrain { elevation_bounds: (-250.0, 250.0), smoothness: 1.6 }
+    ]).compile(12393);
+
+
     // Create the world node
     let world = scene.universe_mut().create_node(
         None,
-        World::new(world_program, BasicWorldGenerator::new(12345)),
+        World::new(world_program, &gen_schema),
     );
 
     // Create the player node

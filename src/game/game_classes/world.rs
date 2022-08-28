@@ -1,19 +1,19 @@
 use std::{
     collections::HashMap,
     convert::identity,
-    iter::{Step, Sum}, ops::{Div, Mul},
+    iter::{Step, Sum}, ops::{Div, Mul}, sync::RwLock,
 };
 
 use auto_ops::impl_op_ex;
 use ggmath::init_array;
 use num::{One, Zero};
 
-use crate::{game::{voxel::Voxel, *}, vertex::WorldVertex};
+use crate::{game::{voxel::{Voxel, VoxelVertex, VoxelClass}, *, chunk_blueprint::{ChunkBlueprint, VoxelBlueprint, ChunkBlueprintGroup}, gen_schema::CompiledGenSchema}};
 
-pub const VOXELS_PER_CHUNK: VoxelUnits = VoxelUnits(25);
-pub const VOXELS_PER_METER: VoxelUnits = VoxelUnits(3);
-pub const WORLD_VIEW_DISTANCE_METERS: f64 = 50.0;
-pub const WORLD_VIEW_DISTANCE_VERTICAL_RATIO: f64 = 0.25;
+pub const VOXELS_PER_CHUNK: VoxelUnits = VoxelUnits(60);
+pub const VOXELS_PER_METER: VoxelUnits = VoxelUnits(4);
+pub const WORLD_VIEW_DISTANCE_METERS: f64 = 70.0;
+pub const WORLD_VIEW_DISTANCE_VERTICAL_RATIO: f64 = 0.3;
 const CHUNK_LIFE_SECONDS: u64 = 9;
 const EXTEND_IN_VIEW_IS_SPHERICAL: bool = true;
 
@@ -22,7 +22,7 @@ define_class! {
     pub class World {
         location: Location,
         world_chunks: Chunks,
-        world_generator: DynWorldGenerator,
+        schema: CompiledGenSchema,
         world_program: Program,
     }
 }
@@ -31,7 +31,7 @@ impl World {
     /// Create a new world.
     pub fn new(
         world_program: Program,
-        world_generator: impl WorldGenerator + 'static,
+        schema: &CompiledGenSchema,
     ) -> Self {
         // Create mesh to be put in mesh_renderer
         Self {
@@ -41,7 +41,7 @@ impl World {
                 vector!(1.0, 1.0, 1.0),
             ),
             world_chunks: Chunks::new(),
-            world_generator: DynWorldGenerator::new(world_generator),
+            schema: schema.clone(),
             world_program,
         }
     }
@@ -54,14 +54,19 @@ impl World {
     /// Extend the life of all chunks in a given area. Units are in meters.
     pub fn extend_life_in_view(&mut self, center: Vector3<f64>, distance: f64, direction: Option<Vector3<f64>>) {
         self.world_chunks
-            .extend_life_in_view(center, distance, WORLD_VIEW_DISTANCE_VERTICAL_RATIO, direction, &self.world_generator);
+            .extend_life_in_view(center, distance, WORLD_VIEW_DISTANCE_VERTICAL_RATIO, direction, &self.schema);
     }
 
-    pub fn chunk_meshes<'a>(
-        &'a mut self,
+    pub fn create_chunk_meshes(&mut self, gfx: &Gfx) -> (f64, usize) {
+        self.world_chunks.create_chunk_meshes(gfx)
+    }
+
+    pub fn using_chunk_meshes<'a, F: FnMut(&[(Location, Option<&Mesh<VoxelVertex>>)]) + 'a>(
+        &'a self,
         gfx: &'a Gfx,
-    ) -> impl Iterator<Item = (Location, Option<&'a Mesh<WorldVertex>>)> + 'a {
-        self.world_chunks.meshes(gfx)
+        f: F,
+    ) {
+        self.world_chunks.using_chunk_meshes(gfx, f)
     }
 
     pub fn program(&self) -> &Program {
@@ -71,7 +76,7 @@ impl World {
     pub fn set_on_ground(&self, position: Vector3<f64>) -> Vector3<f64> {
         vector!(
             position.x(),
-            voxels_to_meters(self.world_generator.elevation_at(meters_to_voxels(position).xz())),
+            voxels_to_meters(self.schema.elevation_at_world_position(position.xz()).unwrap_or_default()),
             position.z(),
         )
     }
@@ -79,45 +84,97 @@ impl World {
 
 #[derive(Debug)]
 pub struct Chunks {
-    chunks: HashMap<ChunkPosition, Chunk>,
+    chunks: RwLock<HashMap<ChunkPosition, Chunk>>,
+    blueprints: RwLock<HashMap<ChunkPosition, ChunkBlueprint>>,
 }
 
 impl Chunks {
     pub fn new() -> Self {
         Self {
-            chunks: HashMap::new(),
+            chunks: RwLock::new(HashMap::new()),
+            blueprints: RwLock::new(HashMap::new()),
         }
     }
 
-    pub fn get(&self, chunk_position: ChunkPosition) -> Option<&Chunk> {
-        self.chunks.get(&chunk_position)
+    pub fn using_chunk<F: FnOnce(Option<&Chunk>)>(&self, chunk_position: ChunkPosition, f: F) {
+        f(self.chunks.read().unwrap().get(&chunk_position))
     }
 
-    pub fn get_mut(&mut self, chunk_position: ChunkPosition) -> Option<&mut Chunk> {
-        self.chunks.get_mut(&chunk_position)
+    pub fn using_chunk_mut<F: FnOnce(Option<&mut Chunk>)>(&self, chunk_position: ChunkPosition, f: F) {
+        f(self.chunks.write().unwrap().get_mut(&chunk_position))
+    }
+
+    pub fn chunk_exists(&self, chunk_position: ChunkPosition) -> bool {
+        self.chunks.read().unwrap().contains_key(&chunk_position)
+    }
+
+    pub fn using_blueprint<F: FnOnce(&ChunkBlueprint)>(&self, chunk_position: ChunkPosition, f: F) {
+        if !self.blueprints.read().unwrap().contains_key(&chunk_position) {
+            panic!("Chunk blueprint does not exist: {:?}", chunk_position);
+        }
+        f(self.blueprints.read().unwrap().get(&chunk_position).unwrap())
+    }
+
+    fn create_blueprint(&self, chunk_position: ChunkPosition, schema: &CompiledGenSchema) {
+        if self.blueprints.read().unwrap().contains_key(&chunk_position) {
+            return;
+        }
+        let blueprint = ChunkBlueprint::new(chunk_position, schema);
+        self.blueprints.write().unwrap().insert(chunk_position, blueprint);
     }
 
     fn remove_old_chunks(&mut self) {
-        self.chunks.retain(|_, chunk| chunk.is_alive());
+        self.chunks.write().unwrap().retain(|_, chunk| chunk.is_alive());
+        let chunks_read = self.chunks.read().unwrap();
+        self.blueprints.write().unwrap().retain(|chunk_position, _| chunks_read.contains_key(chunk_position));
     }
 
     fn extend_life(
         &mut self,
         chunk_position: ChunkPosition,
         now: Instant,
-        world_generator: &DynWorldGenerator,
+        schema: &CompiledGenSchema,
     ) {
-        if let Some(chunk) = self.get_mut(chunk_position) {
-            chunk.extend_life(now);
+        if self.chunk_exists(chunk_position) {
+            self.using_chunk_mut(chunk_position, |chunk| chunk.unwrap().extend_life(now));
         } else {
-            self.chunks.insert(
-                chunk_position,
-                Chunk::new(
-                    chunk_position.clone(),
-                    now,
-                    world_generator.as_ref().new_constructor(),
-                ),
-            );
+            self.create_blueprint(chunk_position, schema);
+            self.create_blueprint(chunk_position - Vector::unit_x(), schema);
+            self.create_blueprint(chunk_position + Vector::unit_x(), schema);
+            self.create_blueprint(chunk_position - Vector::unit_y(), schema);
+            self.create_blueprint(chunk_position + Vector::unit_y(), schema);
+            self.create_blueprint(chunk_position - Vector::unit_z(), schema);
+            self.create_blueprint(chunk_position + Vector::unit_z(), schema);
+            self.using_blueprint(chunk_position, |main_blueprint| {
+                self.using_blueprint(chunk_position - Vector::unit_x(), |mx_blueprint| {
+                    self.using_blueprint(chunk_position + Vector::unit_x(), |px_blueprint| {
+                        self.using_blueprint(chunk_position - Vector::unit_y(), |my_blueprint| {
+                            self.using_blueprint(chunk_position + Vector::unit_y(), |py_blueprint| {
+                                self.using_blueprint(chunk_position - Vector::unit_z(), |mz_blueprint| {
+                                    self.using_blueprint(chunk_position + Vector::unit_z(), |pz_blueprint| {
+                                        self.chunks.write().unwrap().insert(
+                                            chunk_position,
+                                            Chunk::new(
+                                                chunk_position.clone(),
+                                                now,
+                                                main_blueprint,
+                                                [
+                                                    mx_blueprint,
+                                                    px_blueprint,
+                                                    my_blueprint,
+                                                    py_blueprint,
+                                                    mz_blueprint,
+                                                    pz_blueprint,
+                                                ]
+                                            ),
+                                        );
+                                    })
+                                })
+                            })
+                        })
+                    })
+                })
+            })
         }
     }
 
@@ -128,7 +185,7 @@ impl Chunks {
         distance: f64,
         vertical_ratio: f64,
         direction: Option<Vector3<f64>>,
-        world_generator: &DynWorldGenerator,
+        schema: &CompiledGenSchema,
     ) {
         if vertical_ratio <= 0.0 {
             return;
@@ -155,13 +212,13 @@ impl Chunks {
                         .into_iter()
                         .any(|corner| (corner - center).normalized().dot(&direction) > 0.0)
                     {
-                        self.extend_life(chunk_position, now, world_generator);
+                        self.extend_life(chunk_position, now, schema);
                     }
                 }
             }
             else {
                 for chunk_position in self.chunk_positions_in_sphere(center, distance, vertical_ratio) {
-                    self.extend_life(chunk_position, now, world_generator);
+                    self.extend_life(chunk_position, now, schema);
                 }
             }
         } else {
@@ -187,7 +244,7 @@ impl Chunks {
                         .into_iter()
                         .any(|corner| (corner - center).normalized().dot(&direction) > 0.0)
                     {
-                        self.extend_life(chunk_position, now, world_generator);
+                        self.extend_life(chunk_position, now, schema);
                     }
                 }
             }
@@ -196,7 +253,7 @@ impl Chunks {
                     ChunkPosition::from_meters(center - distance * vertical_ratio),
                     ChunkPosition::from_meters(center + distance * vertical_ratio),
                 ) {
-                    self.extend_life(chunk_position, now, world_generator);
+                    self.extend_life(chunk_position, now, schema);
                 }
             }
         }
@@ -239,32 +296,26 @@ impl Chunks {
             })
     }
 
-    fn chunks_in_box(
-        &self,
-        min: ChunkPosition,
-        max: ChunkPosition,
-    ) -> impl Iterator<Item = (ChunkPosition, Option<&Chunk>)> {
-        self.chunk_positions_in_box(min, max)
-            .map(|chunk_position| (chunk_position, self.get(chunk_position)))
+    fn create_chunk_meshes(&mut self, gfx: &Gfx) -> (f64, usize) {
+        let mut total_time = 0.0;
+        let mut total_count = 0;
+        let mut chunks_read = self.chunks.write().unwrap();
+        for chunk in chunks_read.values_mut() {
+            let start = Instant::now();
+            chunk.generate_mesh(gfx);
+            total_time += start.elapsed().as_secs_f64();
+            total_count += 1;
+        }
+        (total_time, total_count)
     }
 
-    /// Get all of the chunks found in a spherical area.
-    /// Units are in meters.
-    fn chunks_in_sphere(
-        &self,
-        center_chunk: Vector3<f64>,
-        distance: f64,
-        vertical_ratio: f64,
-    ) -> impl Iterator<Item = (ChunkPosition, Option<&Chunk>)> {
-        self.chunk_positions_in_sphere(center_chunk, distance, vertical_ratio)
-            .map(|chunk_position| (chunk_position, self.get(chunk_position)))
-    }
-
-    fn meshes<'a>(
-        &'a mut self,
+    fn using_chunk_meshes<'a, F: FnMut(&[(Location, Option<&Mesh<VoxelVertex>>)]) + 'a>(
+        &'a self,
         gfx: &'a Gfx,
-    ) -> impl Iterator<Item = (Location, Option<&'a Mesh<WorldVertex>>)> + 'a {
-        self.chunks.iter_mut().map(|(chunk_position, chunk)| {
+        mut f: F,
+    ) {
+        let chunks_read = self.chunks.read().unwrap();
+        let chunks_read_vec: Vec<_> = chunks_read.iter().map(|(chunk_position, chunk)| {
             let chunk_meter_position = chunk_position.to_meters();
             let voxel_to_meter = voxels_to_meters(1.0);
             (
@@ -273,9 +324,10 @@ impl Chunks {
                     Quaternion::identity(),
                     Vector::from_scalar(voxel_to_meter),
                 ),
-                chunk.mesh(gfx),
+                chunk.get_mesh(gfx),
             )
-        })
+        }).collect();
+        f(&chunks_read_vec)
     }
 }
 
@@ -283,18 +335,24 @@ impl Chunks {
 pub struct Chunk {
     last_extended: Instant,
     voxels: Voxels,
-    mesh: Option<Mesh<WorldVertex>>,
+    mesh: Option<Option<Mesh<VoxelVertex>>>,
 }
 
 impl Chunk {
     fn new(
         position: ChunkPosition,
         now: Instant,
-        constructor: impl FnMut(VoxelPosition) -> Option<Voxel>,
+        blueprint: &ChunkBlueprint,
+        neighbor_blueprints: [&ChunkBlueprint; 6],
     ) -> Self {
         Self {
             last_extended: now,
-            voxels: Voxels::new(position, constructor),
+            voxels: Voxels::new(
+                position,
+                blueprint.to_group(neighbor_blueprints),
+                VoxelClass::Grass,
+                VoxelClass::Water
+            ), // TODO: make the voxel classes configurable
             mesh: None,
         }
     }
@@ -307,14 +365,15 @@ impl Chunk {
         self.last_extended.elapsed().as_secs() < CHUNK_LIFE_SECONDS
     }
 
-    fn mesh(&mut self, gfx: &Gfx) -> Option<&Mesh<WorldVertex>> {
-        if self.mesh.is_none() {
-            self.generate_mesh(gfx);
-        }
-        self.mesh.as_ref()
+    fn get_mesh(&self, gfx: &Gfx) -> Option<&Mesh<VoxelVertex>> {
+        self.mesh.as_ref().and_then(|mesh| mesh.as_ref())
     }
 
     fn generate_mesh(&mut self, gfx: &Gfx) {
+        if !self.voxels.needs_mesh() {
+            return;
+        }
+
         let mut proto_mesh = ProtoMesh::new(PrimitiveType::Points);
 
         let voxels = &self.voxels;
@@ -325,18 +384,26 @@ impl Chunk {
                         move |x| {
                             let voxel_position = vector!(x, y, z);
                             if let Some(voxel) = voxels.get(voxel_position) {
-                                if voxels.get(voxel_position - Vector::unit_z()).is_none()
-                                    || voxels.get(voxel_position + Vector::unit_z()).is_none()
-                                    || voxels.get(voxel_position - Vector::unit_y()).is_none()
-                                    || voxels.get(voxel_position + Vector::unit_y()).is_none()
-                                    || voxels.get(voxel_position - Vector::unit_x()).is_none()
-                                    || voxels.get(voxel_position + Vector::unit_x()).is_none()
+                                let mz = voxels.get(voxel_position - Vector::unit_z());
+                                let pz = voxels.get(voxel_position + Vector::unit_z());
+                                let my = voxels.get(voxel_position - Vector::unit_y());
+                                let py = voxels.get(voxel_position + Vector::unit_y());
+                                let mx = voxels.get(voxel_position - Vector::unit_x());
+                                let px = voxels.get(voxel_position + Vector::unit_x());
+                                if mz.is_none() || unsafe { mz.unwrap_unchecked() }.is_transparent()
+                                    || pz.is_none() || unsafe { pz.unwrap_unchecked() }.is_transparent()
+                                    || my.is_none() || unsafe { my.unwrap_unchecked() }.is_transparent()
+                                    || py.is_none() || unsafe { py.unwrap_unchecked() }.is_transparent()
+                                    || mx.is_none() || unsafe { mx.unwrap_unchecked() }.is_transparent()
+                                    || px.is_none() || unsafe { px.unwrap_unchecked() }.is_transparent()
                                 {
                                     let vertex_position = voxel_position.map(|c| c.0 as f32) + 0.5;
                                     let color = voxel.color();
+                                    let normal = voxel.normal();
                                     Some(
                                         ProtoVertex::new(vertex_position)
                                             .with_color(color)
+                                            .with_normal(normal)
                                     )
                                 }
                                 else {
@@ -354,36 +421,60 @@ impl Chunk {
         proto_mesh.add_points(points);
 
         if proto_mesh.elements().is_empty() {
-            self.mesh = None;
+            self.mesh = Some(None);
         } else {
-            self.mesh = Some(gfx.create_mesh::<WorldVertex>(&proto_mesh));
+            self.mesh = Some(Some(gfx.create_mesh::<VoxelVertex>(&proto_mesh)));
         }
+
+        self.voxels.mark_mesh_needed(false);
     }
 }
 
 #[derive(Debug)]
 struct Voxels {
+    needs_mesh: bool,
     voxels: Vec<Option<Voxel>>,
 }
 
 impl Voxels {
     fn new(
         chunk_position: ChunkPosition,
-        mut constructor: impl FnMut(VoxelPosition) -> Option<Voxel>,
+        blueprints: ChunkBlueprintGroup,
+        terrain_filler: VoxelClass,
+        liquid: VoxelClass,
     ) -> Self {
-        let chunk_position_in_voxels = chunk_position.to_voxel_position();
-        let mut voxels = Vec::new();
-        for x in VoxelUnits(0)..VOXELS_PER_CHUNK {
-            for y in VoxelUnits(0)..VOXELS_PER_CHUNK {
-                for z in VoxelUnits(0)..VOXELS_PER_CHUNK {
-                    voxels.push(constructor(chunk_position_in_voxels + vector!(x, y, z)));
-                }
+        let seed = chunk_position.x().into_i64()
+            .wrapping_mul(chunk_position.y().into_i64())
+            .wrapping_mul(chunk_position.z().into_i64()) as u64;
+        let voxels = (0..VOXELS_PER_CHUNK.0.pow(3) as usize).map(|idx| {
+            let idx_voxel_units = VoxelUnits(idx as i64);
+            let z = idx_voxel_units % VOXELS_PER_CHUNK;
+            let y = (idx_voxel_units / VOXELS_PER_CHUNK) % VOXELS_PER_CHUNK;
+            let x = (idx_voxel_units / VOXELS_PER_CHUNK) / VOXELS_PER_CHUNK;
+            let voxel_position_in_chunk = vector!(x, y, z);
+            let voxel_blueprint = blueprints.get(voxel_position_in_chunk);
+            match voxel_blueprint {
+                VoxelBlueprint::Air => None,
+                VoxelBlueprint::TerrainFiller => {
+                    if blueprints.may_be_visible(voxel_position_in_chunk) {
+                        let normal = blueprint_normal_using_neighbors(&blueprints, voxel_position_in_chunk, VoxelBlueprint::TerrainFiller);
+                        Some(Voxel::new(terrain_filler, normal, seed.wrapping_mul((idx + 1) as u64)))
+                    }
+                    else {
+                        None
+                    }
+                },
+                VoxelBlueprint::Liquid => Some(Voxel::new(liquid, Vector::unit_z(), seed.wrapping_mul((idx + 1) as u64))),
+                VoxelBlueprint::Other => None,
             }
+        }).collect();
+        Self {
+            needs_mesh: true,
+            voxels,
         }
-        Self { voxels }
     }
 
-    fn position_to_index(&self, position: VoxelPosition) -> Option<usize> {
+    fn position_to_index(position: VoxelPosition) -> Option<usize> {
         if position.x().0 < 0 || position.x().0 >= VOXELS_PER_CHUNK.0 {
             return None;
         }
@@ -400,8 +491,16 @@ impl Voxels {
     }
 
     fn get(&self, position_in_chunk: VoxelPosition) -> Option<&Voxel> {
-        self.position_to_index(position_in_chunk)
+        Self::position_to_index(position_in_chunk)
             .and_then(|index| self.voxels[index].as_ref())
+    }
+
+    fn mark_mesh_needed(&mut self, value: bool) {
+        self.needs_mesh = value;
+    }
+
+    fn needs_mesh(&self) -> bool {
+        self.needs_mesh
     }
 }
 
@@ -746,34 +845,6 @@ impl VoxelPositionExt for VoxelPosition {
     }
 }
 
-/// Impl for world generator types.
-pub trait WorldGenerator {
-    /// Create a voxel constructor function.
-    fn new_constructor(&self) -> Box<dyn FnMut(VoxelPosition) -> Option<Voxel>>;
-    fn elevation_at(&self, xz: Vector2<f64>) -> f64;
-}
-
-pub struct DynWorldGenerator {
-    world_generator: Box<dyn WorldGenerator>,
-}
-
-impl DynWorldGenerator {
-    pub fn new(world_generator: impl WorldGenerator + 'static) -> Self {
-        Self {
-            world_generator: Box::new(world_generator),
-        }
-    }
-
-    pub fn as_ref(&self) -> &dyn WorldGenerator {
-        self.world_generator.as_ref()
-    }
-
-    /// Sample the elevation at the given X and Z position.
-    pub fn elevation_at(&self, xz: Vector2<f64>) -> f64 {
-        self.world_generator.elevation_at(xz)
-    }
-}
-
 pub fn voxels_to_meters<T: Div<f64, Output = T>>(position: T) -> T {
     position / VOXELS_PER_METER.0 as f64
 }
@@ -796,4 +867,108 @@ pub fn chunks_to_meters<T: Div<f64, Output = T> + Mul<f64, Output = T>>(position
 
 pub fn meters_to_chunks<T: Div<f64, Output = T> + Mul<f64, Output = T>>(position: T) -> T {
     voxels_to_chunks(meters_to_voxels(position))
+}
+
+fn blueprint_normal_using_neighbors(blueprints: &ChunkBlueprintGroup, position_in_chunk: VoxelPosition, matching: VoxelBlueprint) -> Vector3<f32> {
+    let normal =
+        // -Z
+        if blueprints.get(position_in_chunk - Vector::unit_z()) == matching {
+            Vector::unit_z()
+        }
+        else {
+            Vector::zero()
+        }
+        // +Z
+        + if blueprints.get(position_in_chunk + Vector::unit_z()) == matching {
+            -Vector::unit_z()
+        }
+        else {
+            Vector::zero()
+        }
+        // -Y
+        + if blueprints.get(position_in_chunk - Vector::unit_y()) == matching {
+            Vector::unit_y()
+        }
+        else {
+            Vector::zero()
+        }
+        // +Y
+        + if blueprints.get(position_in_chunk + Vector::unit_y()) == matching {
+            -Vector::unit_y()
+        }
+        else {
+            Vector::zero()
+        }
+        // -X
+        + if blueprints.get(position_in_chunk - Vector::unit_x()) == matching {
+            Vector::unit_x()
+        }
+        else {
+            Vector::zero()
+        }
+        // +X
+        + if blueprints.get(position_in_chunk + Vector::unit_x()) == matching {
+            -Vector::unit_x()
+        }
+        else {
+            Vector::zero()
+        }
+        // -Z -Y -X
+        + if blueprints.get(position_in_chunk - VoxelUnits(1)) == matching {
+            Vector::one() * 0.7071
+        }
+        else {
+            Vector::zero()
+        }
+        // -Z -Y +X
+        + if blueprints.get(position_in_chunk - Vector::unit_z() - Vector::unit_y() + Vector::unit_x()) == matching {
+            (Vector::unit_z() + Vector::unit_y() - Vector::unit_x()).normalized() * 0.7071
+        }
+        else {
+            Vector::zero()
+        }
+        // -Z +Y -X
+        + if blueprints.get(position_in_chunk - Vector::unit_z() + Vector::unit_y() - Vector::unit_x()) == matching {
+            (Vector::unit_z() - Vector::unit_y() + Vector::unit_x()).normalized() * 0.7071
+        }
+        else {
+            Vector::zero()
+        }
+        // -Z +Y +X
+        + if blueprints.get(position_in_chunk - Vector::unit_z() + Vector::unit_y() + Vector::unit_x()) == matching {
+            (Vector::unit_z() - Vector::unit_y() - Vector::unit_x()).normalized() * 0.7071
+        }
+        else {
+            Vector::zero()
+        }
+        // +Z -Y -X
+        + if blueprints.get(position_in_chunk + Vector::unit_z() - Vector::unit_y() - Vector::unit_x()) == matching {
+            (-Vector::unit_z() + Vector::unit_y() + Vector::unit_x()).normalized() * 0.7071
+        }
+        else {
+            Vector::zero()
+        }
+        // +Z -Y +X
+        + if blueprints.get(position_in_chunk + Vector::unit_z() - Vector::unit_y() + Vector::unit_x()) == matching {
+            (-Vector::unit_z() + Vector::unit_y() - Vector::unit_x()).normalized() * 0.7071
+        }
+        else {
+            Vector::zero()
+        }
+        // +Z +Y -X
+        + if blueprints.get(position_in_chunk + Vector::unit_z() + Vector::unit_y() - Vector::unit_x()) == matching {
+            (-Vector::unit_z() - Vector::unit_y() + Vector::unit_x()).normalized() * 0.7071
+        }
+        else {
+            Vector::zero()
+        }
+        // +Z +Y +X
+        + if blueprints.get(position_in_chunk + VoxelUnits(1)) == matching {
+            -Vector::one() * 0.7071
+        }
+        else {
+            Vector::zero()
+        };
+    
+    normal.normalized()
 }

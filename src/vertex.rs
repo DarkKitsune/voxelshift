@@ -77,7 +77,7 @@ macro_rules! vertex_struct {
 
         impl $crate::vertex::Vertex for $name {
             fn attributes() -> Vec<$crate::vertex::VertexAttribute> {
-                vertex_attributes!(
+                crate::vertex_attributes!(
                     $($field: $ty),*
                 )
             }
@@ -157,25 +157,3 @@ impl DebugVertex {
         }
     }
 }
-
-vertex_struct! {
-    /// Basic debug vertex with a position, normal, and color.
-    #[derive(Debug)]
-    pub struct WorldVertex {
-        position: Vector3<f32> = |proto| proto.position(),
-        color: Vector4<f32> = |proto| proto.color_or_panic().into(),
-    }
-}
-
-impl WorldVertex {
-    pub fn new(
-        position: Vector3<f32>,
-        color: Color,
-    ) -> Self {
-        Self {
-            position,
-            color: color.into(),
-        }
-    }
-}
-
