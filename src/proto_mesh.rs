@@ -5,7 +5,7 @@ use ggmath::{
     vector_alias::{Vector2, Vector3},
 };
 
-use crate::{colors::Color, vertex::Vertex, game::PrimitiveType};
+use crate::{colors::Color, game::PrimitiveType, vertex::Vertex};
 
 /// A prototype mesh
 #[derive(Debug, Clone)]
@@ -47,7 +47,8 @@ impl ProtoMesh {
         self.vertices.extend(vertices);
         self.elements
             .extend(elements.into_iter().map(|i| i + offset as u32));
-        self.primitive_type().check_element_count(self.elements().len() - old_length);
+        self.primitive_type()
+            .check_element_count(self.elements().len() - old_length);
     }
 
     /// Get the primitive type of this `ProtoMesh`
@@ -81,7 +82,7 @@ impl ProtoMesh {
         if self.primitive_type() != PrimitiveType::Triangles {
             panic!("Can only add rectangles to triangle meshes");
         }
-        
+
         let center = orientation.center();
         let half_size = size * 0.5;
         let axes = orientation
@@ -264,13 +265,14 @@ impl ProtoMesh {
         }
     }
 
-    pub fn add_points(&mut self, points: impl IntoIterator<Item = ProtoVertex>,) {
+    pub fn add_points(&mut self, points: impl IntoIterator<Item = ProtoVertex>) {
         if self.primitive_type() != PrimitiveType::Points {
             panic!("Can only add points to point meshes");
         }
         let element_start = self.vertices.len() as u32;
         self.vertices.extend(points);
-        self.elements.extend(element_start..self.vertices.len() as u32);
+        self.elements
+            .extend(element_start..self.vertices.len() as u32);
     }
 }
 

@@ -163,8 +163,9 @@ impl Scene {
         if let Some((camera_node, camera)) = self.universe.nodes().with_component::<Camera>().next()
         {
             let absolute_camera_location = self.get_absolute_location(camera_node.handle().clone());
-            let absolute_camera_rotation_matrix =
-                absolute_camera_location.delocalize_rotation(camera.rotation()).to_matrix();
+            let absolute_camera_rotation_matrix = absolute_camera_location
+                .delocalize_rotation(camera.rotation())
+                .to_matrix();
             let absolute_camera_position =
                 absolute_camera_location.delocalize_position(camera.translation());
 

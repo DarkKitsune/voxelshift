@@ -11,7 +11,12 @@ pub struct Camera {
 
 impl Camera {
     /// Create a new camera
-    fn new(target_node: Option<Handle>, translation: Vector3<f64>, rotation: Quaternion<f64>, camera_projection: CameraProjection) -> Self {
+    fn new(
+        target_node: Option<Handle>,
+        translation: Vector3<f64>,
+        rotation: Quaternion<f64>,
+        camera_projection: CameraProjection,
+    ) -> Self {
         Self {
             target_node,
             translation,
@@ -21,7 +26,14 @@ impl Camera {
     }
 
     /// Create a new perspective camera
-    pub fn new_perspective(target_node: Option<Handle>, translation: Vector3<f64>, rotation: Quaternion<f64>, fov: f64, near: f64, far: f64) -> Self {
+    pub fn new_perspective(
+        target_node: Option<Handle>,
+        translation: Vector3<f64>,
+        rotation: Quaternion<f64>,
+        fov: f64,
+        near: f64,
+        far: f64,
+    ) -> Self {
         Self::new(
             target_node,
             translation,
@@ -76,10 +88,19 @@ impl Camera {
     pub fn projection_matrix(&self, aspect_ratio: f64) -> Matrix4x4<f32> {
         match self.camera_projection.clone() {
             CameraProjection::Perspective { fov, near, far } => {
-                Matrix4x4::new_projection_perspective(fov as f32, aspect_ratio as f32, near as f32, far as f32)
+                Matrix4x4::new_projection_perspective(
+                    fov as f32,
+                    aspect_ratio as f32,
+                    near as f32,
+                    far as f32,
+                )
             }
             CameraProjection::Orthographic { size, near, far } => {
-                Matrix4x4::new_projection_orthographic(size.size(aspect_ratio).map(|c| *c as f32), near as f32, far as f32)
+                Matrix4x4::new_projection_orthographic(
+                    size.size(aspect_ratio).map(|c| *c as f32),
+                    near as f32,
+                    far as f32,
+                )
             }
         }
     }

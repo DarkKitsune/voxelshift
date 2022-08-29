@@ -132,7 +132,12 @@ impl Gfx {
         let elements = proto_mesh.elements();
         let vertex_buffer = self.create_buffer(BufferType::VERTEX, BufferData::Data(&vertices));
         let element_buffer = self.create_buffer(BufferType::ELEMENT, BufferData::Data(elements));
-        Mesh::new(&vertex_buffer, &element_buffer, elements.len(), proto_mesh.primitive_type())
+        Mesh::new(
+            &vertex_buffer,
+            &element_buffer,
+            elements.len(),
+            proto_mesh.primitive_type(),
+        )
     }
 
     /// Sets the target framebuffer for rendering operations
@@ -645,8 +650,14 @@ impl Program {
 
     /// Set the value of a uniform variable in the program
     fn set_camera(&self, camera: &RenderCamera) {
-        let _ = self.set_uniform_value("_camera_position", camera.position.convert_to::<f32>().unwrap());
-        let _ = self.set_uniform_value("_camera_direction", camera.direction.convert_to::<f32>().unwrap());
+        let _ = self.set_uniform_value(
+            "_camera_position",
+            camera.position.convert_to::<f32>().unwrap(),
+        );
+        let _ = self.set_uniform_value(
+            "_camera_direction",
+            camera.direction.convert_to::<f32>().unwrap(),
+        );
         let _ = self.set_uniform_value("_camera_up", camera.up.convert_to::<f32>().unwrap());
         let _ = self.set_uniform_value("_camera_projection", camera.projection);
     }
@@ -779,10 +790,15 @@ gfx_object_struct! {
 }
 
 impl<V: Vertex> Mesh<V> {
-    fn new(vertex_buffer: &Buffer<V>, element_buffer: &Buffer<u32>, element_count: usize, primitive_type: PrimitiveType) -> Self {
+    fn new(
+        vertex_buffer: &Buffer<V>,
+        element_buffer: &Buffer<u32>,
+        element_count: usize,
+        primitive_type: PrimitiveType,
+    ) -> Self {
         #[cfg(debug_assertions)]
         primitive_type.check_element_count(element_count);
-        
+
         if element_count == 0 {
             panic!("Cannot create a mesh with 0 elements");
         }
@@ -850,7 +866,10 @@ impl PrimitiveType {
         match self {
             PrimitiveType::Triangles => {
                 if element_count % 3 != 0 {
-                    panic!("Cannot create a triangle mesh with {} elements", element_count);
+                    panic!(
+                        "Cannot create a triangle mesh with {} elements",
+                        element_count
+                    );
                 }
             }
             PrimitiveType::Lines => {

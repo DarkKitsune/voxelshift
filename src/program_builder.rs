@@ -199,7 +199,9 @@ impl<V: Vertex> VertexModuleBuilder<V> {
             .as_ref()
             .expect("Vertex module must have its outputs set");
         let source = outputs.iter().fold(source, |mut acc, output| {
-            if output.next_stage_input.name != "gl_Position" && output.next_stage_input.name != "gl_PointSize" {
+            if output.next_stage_input.name != "gl_Position"
+                && output.next_stage_input.name != "gl_PointSize"
+            {
                 acc.push_str("layout (location = ");
                 acc.push_str(&output.next_stage_input.location.to_string());
                 acc.push_str(") out ");
@@ -494,7 +496,11 @@ impl ModuleOutputs {
         self.outputs.insert(name.to_string(), output);
     }
 
-    pub fn set_vertex(&mut self, position: impl Into<expr::Expression>, point_size: impl Into<expr::Expression>) {
+    pub fn set_vertex(
+        &mut self,
+        position: impl Into<expr::Expression>,
+        point_size: impl Into<expr::Expression>,
+    ) {
         self.set(Module::Fragment, "gl_Position", position);
         self.set(Module::Fragment, "gl_PointSize", point_size);
     }
@@ -527,8 +533,7 @@ impl ModuleOutputs {
                         {
                             panic!("Vertex position output must be a vec4");
                         }
-                    }
-                    else if name == "gl_PointSize" {
+                    } else if name == "gl_PointSize" {
                         if self.module != Module::Vertex {
                             panic!("Vertex point size output can only be set by the vertex module");
                         }

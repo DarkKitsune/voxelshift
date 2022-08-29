@@ -2,9 +2,13 @@ use std::sync::Arc;
 
 use num::ToPrimitive;
 
-use crate::game::*;
+use crate::game::{*, chunk::ChunkPositionExt};
 
-use super::{chunk_blueprint::VoxelBlueprint, world::{ChunkPosition, VOXELS_PER_CHUNK, VoxelPosition, VoxelPositionExt, VoxelUnits, ChunkPositionExt, meters_to_voxels}};
+use super::{
+    chunk_blueprint::VoxelBlueprint,
+    world::VOXELS_PER_CHUNK,
+    chunk::{VoxelPositionExt, VoxelUnits, ChunkPosition, meters_to_voxels, VoxelPosition},
+};
 
 pub struct GenSchema {
     instructions: Vec<GenInstruction>,
@@ -37,16 +41,20 @@ pub enum GenInstruction {
 impl GenInstruction {
     fn compile(&self, seed: u64) -> CompiledInstruction {
         match self {
-            &Self::Terrain { elevation_bounds, smoothness } =>
-                CompiledInstruction::Terrain {
-                    elevation_bounds,
-                    noise: Noise::<2>::new(seed, 6, 6.0, smoothness, 0.01),
-                },
-            &Self::LiquidVolume { y_level, min_volume } =>
-                CompiledInstruction::LiquidVolume {
-                    y_level,
-                    min_volume,
-                },
+            &Self::Terrain {
+                elevation_bounds,
+                smoothness,
+            } => CompiledInstruction::Terrain {
+                elevation_bounds,
+                noise: Noise::<2>::new(seed, 6, 6.0, smoothness, 0.01),
+            },
+            &Self::LiquidVolume {
+                y_level,
+                min_volume,
+            } => CompiledInstruction::LiquidVolume {
+                y_level,
+                min_volume,
+            },
         }
     }
 }
@@ -62,12 +70,14 @@ pub struct CompiledGenSchema {
 
 impl CompiledGenSchema {
     fn new<'a>(instructions: impl IntoIterator<Item = &'a GenInstruction> + 'a, seed: u64) -> Self {
-        let mut instructions: Vec<_> = instructions.into_iter().enumerate().map(|(idx, i)| i.compile(seed.wrapping_mul((idx + 1) as u64))).collect();
+        let mut instructions: Vec<_> = instructions
+            .into_iter()
+            .enumerate()
+            .map(|(idx, i)| i.compile(seed.wrapping_mul((idx + 1) as u64)))
+            .collect();
         instructions.sort_by_key(CompiledInstruction::priority);
         Self {
-            base: Arc::new(CompiledGenSchemaBase {
-                instructions,
-            }),
+            base: Arc::new(CompiledGenSchemaBase { instructions }),
         }
     }
 
@@ -80,7 +90,10 @@ impl CompiledGenSchema {
     }
 
     pub fn elevation_at_voxel_position(&self, voxel_position: Vector2<f64>) -> Option<f64> {
-        self.base.instructions.iter().find_map(|i| i.elevation_at_voxel_position(voxel_position))
+        self.base
+            .instructions
+            .iter()
+            .find_map(|i| i.elevation_at_voxel_position(voxel_position))
     }
 
     pub fn elevation_at_world_position(&self, world_position: Vector2<f64>) -> Option<f64> {
@@ -109,13 +122,17 @@ impl CompiledInstruction {
 
     fn apply(&self, chunk_position: ChunkPosition, voxels: &mut Vec<VoxelBlueprint>) {
         match self {
-            Self::Terrain { elevation_bounds, noise } => {
+            Self::Terrain {
+                elevation_bounds,
+                noise,
+            } => {
                 let min_elevation = elevation_bounds.0.to_f64().unwrap();
                 let max_elevation = elevation_bounds.1.to_f64().unwrap();
                 let columns: Vec<_> = for_each_column(chunk_position).collect();
                 for (xz, column) in columns {
                     let column_center = xz.map(|c| c.into_f64() + 0.5);
-                    let elevation = min_elevation.lerp(max_elevation, noise.sample_f64(column_center));
+                    let elevation =
+                        min_elevation.lerp(max_elevation, noise.sample_f64(column_center));
                     for (y, idx) in column {
                         let voxel_center = vector!(xz.x(), y, xz.y()).center_position();
                         if voxel_center.y() < elevation {
@@ -123,8 +140,11 @@ impl CompiledInstruction {
                         }
                     }
                 }
-            },
-            Self::LiquidVolume { y_level, min_volume } => {
+            }
+            Self::LiquidVolume {
+                y_level,
+                min_volume,
+            } => {
                 let mut volume = 0;
                 let mut indices = Vec::new();
                 for (_xz, column) in for_each_column(chunk_position) {
@@ -140,24 +160,30 @@ impl CompiledInstruction {
                         voxels[idx] = VoxelBlueprint::Liquid;
                     }
                 }
-            },
+            }
         }
     }
 
     pub fn elevation_at_voxel_position(&self, voxel_position: Vector2<f64>) -> Option<f64> {
         match self {
-            Self::Terrain { elevation_bounds, noise } => {
+            Self::Terrain {
+                elevation_bounds,
+                noise,
+            } => {
                 let min_elevation = elevation_bounds.0.to_f64().unwrap();
                 let max_elevation = elevation_bounds.1.to_f64().unwrap();
                 let elevation = min_elevation.lerp(max_elevation, noise.sample_f64(voxel_position));
                 Some(elevation)
-            },
+            }
             Self::LiquidVolume { .. } => None,
         }
     }
 }
 
-fn for_each_voxel(voxels: &mut [VoxelBlueprint], chunk_position: ChunkPosition) -> impl Iterator<Item = (VoxelPosition, &mut VoxelBlueprint)> {
+fn for_each_voxel(
+    voxels: &mut [VoxelBlueprint],
+    chunk_position: ChunkPosition,
+) -> impl Iterator<Item = (VoxelPosition, &mut VoxelBlueprint)> {
     const VOXELS_PER_CHUNK_I64: i64 = VOXELS_PER_CHUNK.into_i64();
     let chunk_voxel_position = chunk_position.to_voxel_position();
     voxels.iter_mut().enumerate().map(move |(idx, voxel)| {
@@ -170,15 +196,27 @@ fn for_each_voxel(voxels: &mut [VoxelBlueprint], chunk_position: ChunkPosition) 
     })
 }
 
-fn for_each_column<'a>(chunk_position: ChunkPosition) -> impl Iterator<Item = (Vector2<VoxelUnits>, impl Iterator<Item = (VoxelUnits, usize)>)> + 'a {
+fn for_each_column<'a>(
+    chunk_position: ChunkPosition,
+) -> impl Iterator<
+    Item = (
+        Vector2<VoxelUnits>,
+        impl Iterator<Item = (VoxelUnits, usize)>,
+    ),
+> + 'a {
     const VOXELS_PER_CHUNK_I64: i64 = VOXELS_PER_CHUNK.into_i64();
     let chunk_voxel_position = chunk_position.to_voxel_position();
-    (0 .. VOXELS_PER_CHUNK_I64).flat_map(move |x| {
-        (0 .. VOXELS_PER_CHUNK_I64).map(move |z| {
+    (0..VOXELS_PER_CHUNK_I64).flat_map(move |x| {
+        (0..VOXELS_PER_CHUNK_I64).map(move |z| {
             let column_position = vector!(x.into(), z.into());
             (
                 chunk_voxel_position.xz() + column_position,
-                (0..VOXELS_PER_CHUNK_I64).map(move |y| (chunk_voxel_position.y() + y.into(), (z + y * VOXELS_PER_CHUNK_I64 + x * VOXELS_PER_CHUNK_I64.pow(2)) as usize)),
+                (0..VOXELS_PER_CHUNK_I64).map(move |y| {
+                    (
+                        chunk_voxel_position.y() + y.into(),
+                        (z + y * VOXELS_PER_CHUNK_I64 + x * VOXELS_PER_CHUNK_I64.pow(2)) as usize,
+                    )
+                }),
             )
         })
     })

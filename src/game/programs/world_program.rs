@@ -1,4 +1,4 @@
-use crate::{game::{*, voxel::VoxelVertex}};
+use crate::game::{voxel::VoxelVertex, *};
 
 #[derive(Clone, Copy)]
 pub struct WorldProgram;
@@ -37,7 +37,8 @@ fn vertex_main(inputs: &ModuleInputs, outputs: &mut ModuleOutputs, uniforms: &mu
     let projection = uniforms.camera_projection();
 
     // Calculate the world space position of the vertex
-    let world_space_position = position * uniforms.get("mesh_scale") + uniforms.get("mesh_position");
+    let world_space_position =
+        position * uniforms.get("mesh_scale") + uniforms.get("mesh_position");
 
     // Calculate the screen space position of the vertex
     let mut screen_space_position = projection * view * world_space_position.concat(1.0);
@@ -46,7 +47,9 @@ fn vertex_main(inputs: &ModuleInputs, outputs: &mut ModuleOutputs, uniforms: &mu
         // The final vertex position is the screen space position
         screen_space_position.clone(),
         // Point size is screen size * voxel size in meters * 0.7 * vertex W component
-        uniforms.get("screen_largest_dimension") * uniforms.get("voxel_meters") * 0.7 / screen_space_position.w());
+        uniforms.get("screen_largest_dimension") * uniforms.get("voxel_meters") * 0.7
+            / screen_space_position.w(),
+    );
 
     // Pass outputs to the fragment shader
     outputs.set(Module::Fragment, "color", color);

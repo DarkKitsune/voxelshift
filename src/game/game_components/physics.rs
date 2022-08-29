@@ -33,8 +33,7 @@ impl Physics {
             let delta_velocity = self.velocity * delta_seconds;
             location.translate(delta_velocity);
             true
-        }
-        else {
+        } else {
             false
         };
 
@@ -43,8 +42,7 @@ impl Physics {
             let friction_applied = (self.friction * delta_seconds).min(1.0);
             self.velocity = self.velocity * (1.0 - friction_applied);
             friction_applied
-        }
-        else {
+        } else {
             0.0
         };
 

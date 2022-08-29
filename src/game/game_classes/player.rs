@@ -1,8 +1,6 @@
 use game_components::physics::{Physics, PhysicsStepInfo};
 
-use crate::game::*;
-
-use super::world::{VoxelPosition, VoxelUnits};
+use crate::game::{*, chunk::{VoxelPosition, VoxelUnits}};
 
 const PLAYER_ACCELERATION: f64 = 55.0;
 const PLAYER_FRICTION: f64 = 10.0;
@@ -25,7 +23,14 @@ impl Player {
     pub fn new(position: Vector3<f64>, fov: f64) -> Self {
         Self {
             location: Location::new(position, Quaternion::identity(), Vector3::one()),
-            camera: Camera::new_perspective(None, vector!(0.0, PLAYER_EYE_HEIGHT, 0.0), Quaternion::identity(), fov, 0.05, 100.0),
+            camera: Camera::new_perspective(
+                None,
+                vector!(0.0, PLAYER_EYE_HEIGHT, 0.0),
+                Quaternion::identity(),
+                fov,
+                0.05,
+                100.0,
+            ),
             physics: Physics {
                 mass: 88.7,
                 velocity: Vector3::zero(),
@@ -93,7 +98,9 @@ impl Player {
     }
 
     pub fn voxel_position(&self) -> VoxelPosition {
-        self.location.position().map(|v| VoxelUnits::from_meters(*v))
+        self.location
+            .position()
+            .map(|v| VoxelUnits::from_meters(*v))
     }
 
     pub fn local_eye_position(&self) -> Vector3<f64> {
